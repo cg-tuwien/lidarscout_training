@@ -1,7 +1,7 @@
 # LidarScout 
 Direct Out-of-Core Rendering of Massive Point Clouds
 
-This is the official implementation of LidarScout (High-Performance Graphics 2025). This is the repository for training and evaluating the model. For the viewer and an executable, see this repository: https://github.com/cg-tuwien/lidarscout
+This is the official implementation of LidarScout (High-Performance Graphics 2025). This is the repository for training and evaluating the model. For the viewer and an executable, see https://github.com/cg-tuwien/lidarscout
 
 ![LidarScout teaser](images/teaser.jpg)
 
@@ -78,6 +78,8 @@ You can gather all the evaluation statistics from the XLSX files for easy copy&p
 ``` bash
 python gather_table_data.py
 ```
+
+At the end of the training, the model will be traced, creating a TorchScript model. This file is stored in `[repo_root]/models` as `.pt`. You can transfer this to the [LidarScout viewer](https://github.com/cg-tuwien/lidarscout). See the [`heightmap_interp` sub-project](https://github.com/cg-tuwien/lidarscout/tree/main/heightmap_interp) for the usage in LibTorch.
 
 
 ## Trouble Shooting
