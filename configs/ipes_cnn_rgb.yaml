@@ -1,0 +1,13 @@
+data:
+  init_args:
+    rgb_to_img_methods:
+    - 'nearest'
+    - 'linear'
+
+model:
+  init_args:
+    has_color_input: True
+    has_color_output: True
+    output_names:
+      - 'hm_val'
+      - 'hm_rgb'

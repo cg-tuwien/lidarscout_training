@@ -1,0 +1,14 @@
+model:
+  class_path: source.modules.ipes_dctnet.IpesDCTNet
+  init_args:
+    name: 'ipes'
+    results_dir: 'results'
+    predict_batch_size: 100
+    network_latent_size: 128
+#    network_latent_size: 256
+#    network_latent_size: 2048
+    use_mlp: True
+#    use_mlp: False
+    mlp_layers: 1
+#    mlp_layers: 3
+    dropout: 0.0

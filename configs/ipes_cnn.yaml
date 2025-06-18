@@ -1,0 +1,131 @@
+debug: &debug False
+#debug: &debug True
+seed_everything: 42
+
+trainer:
+  default_root_dir: 'models/ipes'
+  strategy: auto
+  accelerator: gpu
+#  accelerator: cpu
+  devices: -1
+#  precision: 16-mixed  # PPSurf default
+  precision: 32
+#  detect_anomaly: True  # for debugging auto-diff
+  max_epochs: 75
+#  max_epochs: 150
+  num_sanity_val_steps: 0
+  log_every_n_steps: 1
+  logger:
+    class_path: pytorch_lightning.loggers.TensorBoardLogger
+    init_args:
+      save_dir: 'models'
+      version: 'alpha'
+  callbacks:
+  - class_path: source.cli.PPSProgressBar
+  - class_path: LearningRateMonitor
+    init_args:
+      logging_interval: step
+  - class_path: source.cli.TorchScriptModelCheckpoint
+    init_args:
+      save_last: True
+      save_top_k: 0
+      enable_version_counter: False
+  - class_path: ModelSummary
+    init_args:
+#      max_depth: -1
+      max_depth: 2
+#  - class_path: EarlyStopping
+#    init_args:
+#      monitor: 'metrics/train/abs_dist_rms'
+#      patience: 10
+#      mode: min
+#      verbose: True
+#  - class_path: LearningRateFinder
+#    init_args:
+#      num_training_steps: 50
+
+data:
+  class_path: source.dataloaders.ipes_img_data_loader.IpesImgDataModule
+  init_args:
+    in_file: datasets/laz_minimal/train.txt
+    seed: 42
+    workers: 15  # max win local only
+#    workers: 9
+#    workers: 3
+#    workers: 0  # debug single threaded
+#    dataset_step: 100
+    dataset_step: 10
+    patches_per_shape: 10_000  # all
+#    patches_per_shape: 1000
+#    patches_per_shape: 10  # for debug
+    context_radius_factor: 1.5  # on top of hm_interp_size
+    hm_interp_size: &hm_interp_size 96
+    hm_size: &hm_size 64
+    meters_per_pixel: 10.0
+#    meters_per_pixel: 40.0
+    rgb_to_img_methods:
+    - 'linear'
+    pts_to_img_methods:
+#    - 'rasterize'
+#    - 'rast_pyramid_mmm'
+#    - 'rast_nearest_max'
+#    - 'rast_nearest_mean'
+#    - 'rast_linear_max'
+#    - 'rast_linear_mean'
+    - 'nearest'
+    - 'linear'
+#    - 'cubic'
+    do_data_augmentation: True
+#    do_data_augmentation: False
+#    batch_size: 50
+#    batch_size: 10
+    batch_size: 5
+#    batch_size: 2
+#    batch_size: 1
+    debug: *debug
+
+model:
+  class_path: source.modules.ipes_cnn.IpesCnn
+  init_args:
+    name: 'ipes'
+    results_dir: 'results'
+    predict_batch_size: 100
+    network_latent_size: 128
+#    network_latent_size: 256
+#    network_latent_size: 2048
+    hm_interp_size: *hm_interp_size
+#    hm_size: *hm_size  # filled by parser.link_arguments
+    has_color_input: False
+    has_color_output: False
+#    has_color_input: True
+#    has_color_output: True
+#    rgb_to_img_methods:  # filled by parser.link_arguments
+#    pts_to_img_methods:  # filled by parser.link_arguments
+    output_names:
+      - 'hm_val'
+#      - 'hm_rgb'
+    show_unused_params: False
+    debug: *debug
+
+optimizer:
+  class_path: torch.optim.AdamW
+  init_args:
+    lr: 0.0001
+#    lr: 0.00001
+    betas:
+    - 0.9
+    - 0.999
+    eps: 1e-5
+    weight_decay: 1e-2
+    amsgrad: False
+
+lr_scheduler:
+  class_path: torch.optim.lr_scheduler.MultiStepLR
+  init_args:
+    milestones:
+    - 25
+    - 50
+#    - 100
+#    - 300
+#    - 500
+    gamma: 0.1

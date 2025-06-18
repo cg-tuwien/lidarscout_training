@@ -1,0 +1,11 @@
+data:
+  init_args:
+    rgb_to_img_methods:
+    - 'rasterize'
+    pts_to_img_methods:
+    - 'rasterize'
+
+model:
+  init_args:
+    has_color_input: True
+    has_color_output: True

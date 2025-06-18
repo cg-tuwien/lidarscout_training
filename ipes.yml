@@ -1,0 +1,38 @@
+name: ipes
+# conda env create --file ipes.yml
+channels:
+  - pytorch
+  - nvidia
+  - anaconda
+  - conda-forge
+  - pyg
+  - defaults
+dependencies:
+  - python=3
+  - pytorch=2.4.0
+  - pytorch-cuda=12.4
+  - pytorch-lightning>=2.4
+  - scikit-learn-intelex
+  - numpy=1
+  - scikit-image=0
+  - scipy=1
+  - pandas=2
+  - openpyxl=3
+  - overrides=7
+  - pykdtree=1
+  - laspy=2
+  - pip>=22
+  - pillow
+  - intel-openmp
+  - tqdm
+  - pyglet=1
+  - rtree=1
+  - kornia=0
+  - opencv=4
+  - pip:
+    - tensorboard>=2.14
+    - trimesh>=3.23
+    - pysdf>=0.1.8
+    - jsonargparse[signatures]>=4.7
+    - laspy[laszip,lazrs]>=2.5
+    - psutil>=6.0.0

@@ -1,0 +1,2 @@
+model:
+  class_path: source.modules.ipes_unet.IpesUNet

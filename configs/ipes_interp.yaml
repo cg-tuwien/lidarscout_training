@@ -1,0 +1,65 @@
+debug: &debug False
+#debug: &debug True
+
+trainer:
+  default_root_dir: 'models/ipes'
+  strategy: auto
+  accelerator: cpu
+  devices: 1
+  precision: 32
+  max_epochs: 1
+  num_sanity_val_steps: 0
+  log_every_n_steps: 1
+  logger:
+    class_path: pytorch_lightning.loggers.TensorBoardLogger
+    init_args:
+      save_dir: 'models'
+      version: 'alpha'
+  callbacks:
+  - class_path: source.cli.PPSProgressBar
+
+data:
+  class_path: source.dataloaders.ipes_img_data_loader.IpesImgDataModule
+  init_args:
+    in_file: datasets/laz_minimal/test_set.txt
+    seed: 42
+#    workers: 15
+#    workers: 9
+#    workers: 5
+    workers: 4
+#    workers: 0
+    dataset_step: 10
+    patches_per_shape: 10_000  # all
+#    patches_per_shape: 1000
+    context_radius_factor: 1.5  # on top of hm_interp_size
+    hm_interp_size: 64
+    hm_size: 64
+    meters_per_pixel: 10.0
+    rgb_to_img_methods:
+    - 'linear'
+    pts_to_img_methods:
+    - 'linear'
+    do_data_augmentation: True
+#    do_data_augmentation: False
+#    batch_size: 10
+    batch_size: 2
+#    batch_size: 1
+    debug: *debug
+
+model:
+  class_path: source.modules.ipes_interp.IpesInterp
+  init_args:
+    name: 'ipes'
+    results_dir: 'results'
+    predict_batch_size: 100
+    show_unused_params: False
+    debug: *debug
+    has_color_input: True
+    has_color_output: True
+    rgb_to_img_methods:
+    - 'linear'
+    pts_to_img_methods:
+    - 'linear'
+    output_names:
+      - 'hm_val'
+      - 'hm_rgb'
