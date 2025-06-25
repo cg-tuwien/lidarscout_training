@@ -15,7 +15,7 @@ We tested this repository on Windows 10/11 with CUDA 12.4. We recommend installi
 git clone git@github.com:cg-tuwien/lidarscout_training.git
 
 # go into the cloned dir
-cd ipes
+cd lidarscout_training
 
 1. Create the virtual environment with: `python -m venv .venv`
 2. Activate the virtual environment in a terminal with a matching script in `.venv\Scripts\`
