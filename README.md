@@ -96,5 +96,15 @@ as described on [Stackoverflow](https://stackoverflow.com/questions/64261546/how
 ## Citation
 If you use our work, please cite our paper:
 ```
-TBD
+@inproceedings{erler2025lidarscout,
+  booktitle = {High-Performance Graphics - Symposium Papers},
+  editor = {Knoll, Aaron and Peters, Christoph},
+  title = {{LidarScout: Direct Out-of-Core Rendering of Massive Point Clouds}},
+  author = {Erler, Philipp and Herzberger, Lukas and Wimmer, Michael and Schütz, Markus},
+  year = {2025},
+  publisher = {The Eurographics Association},
+  ISSN = {2079-8687},
+  ISBN = {978-3-03868-291-2},
+  DOI = {10.2312/hpg.20251170}
+}
 ```
