@@ -1,7 +1,9 @@
 # LidarScout 
 Direct Out-of-Core Rendering of Massive Point Clouds
 
-This is the official implementation of LidarScout (High-Performance Graphics 2025). This is the repository for training and evaluating the model. For the viewer and an executable, see https://github.com/cg-tuwien/lidarscout
+This is the official implementation of LidarScout (High-Performance Graphics 2025). See the paper and other data here: https://www.cg.tuwien.ac.at/research/publications/2025/erler-2025-lidarscout/
+
+This is the repository for training and evaluating the model. For the viewer and an executable, see https://github.com/cg-tuwien/lidarscout
 
 ![LidarScout teaser](images/teaser.jpg)
 
