@@ -10,7 +10,7 @@ This is the repository for training and evaluating the model. For the viewer and
 
 ## Setup
 
-We tested this repository on Windows 10/11 with CUDA 12.4. We recommend installing the dependencies with venv and Pip.
+We tested this repository on Windows 10/11 with CUDA 12.4 and Python 3.12. We recommend installing the dependencies with venv and Pip.
 
 ``` bash
 # clone this repo
@@ -84,9 +84,36 @@ python gather_table_data.py
 At the end of the training, the model will be traced, creating a TorchScript model. This file is stored in `[repo_root]/models` as `.pt`. You can transfer this to the [LidarScout viewer](https://github.com/cg-tuwien/lidarscout). See the [`heightmap_interp` sub-project](https://github.com/cg-tuwien/lidarscout/tree/main/heightmap_interp) for the usage in LibTorch.
 
 
-## Trouble Shooting
+## Folder and File Structure
 
-Pip might fail when creating the environment. If so, try installing the Pip packages from the `pps.yml` manually.
+### Training Set
+
+The `heightmaps.bin` files contain heightmap training samples. One record corresponds to a position in the point cloud, together with its ground-truth heightmap. The position is stored as a 3D vector of doubles, the heightmap as 64x64 floats. So every record consists of 3*8 B + 64*64*4 B = 24 + 16,384 B = 16,408 B. Read this number of bytes until the end of the file to extract all 1000 records. The heights are in meters above sea level.
+This data can be extracted with NumPy (please see usage example in ipes_data_loader.py):
+```
+import numpy as np
+hm_size = 64
+dt = np.dtype('3f8, ({},{})f4'.format(hm_size, hm_size))
+hm_data = np.fromfile(file=hm_file, dtype=dt)
+query_pts = hm_data['f0']
+hm = hm_data['f1']
+```
+
+`rgb_0.bin`, `rgb_1.bin`, `rgb_2.bin` have exactly the same structure as the `heightmaps.bin`, but instead of heights, they contain color data. `rgb_0.bin` contains the red channel, `rgb_1.bin` contains the green channel, and `rgb_2.bin` contains the blue channel. The colors are floats in the range of 0..255.
+
+### Testing Outputs
+`results/laz_minimal` contains predictions and analysis for testing datasets with GT data. These correspond to the testing stage of the training. There, each dataset has an XLSX file containing the metrics for each batch of samples. The `test` sub-folder contains the predictions and GT of each batch in the form of figure PNGs of the textured heightmaps and point cloud PLYs in model space of the input point cloud. Please see ipes_base.py for more details.
+
+### Prediction Outputs
+Each dataset has a sub-folder in `results`, in which are:
+- `*.npy`: predicted heightmap values as (b, n, 64, 64) NumPy float arrays as meters above sea level. b ist the number of batches, n the number of predicted tiles per batch.
+- `*_rgb.npy`: predicted RGB color values as (b, n, 64, 64, 3) NumPy float arrays in the range of 0..1. 
+- `*_xy.npy`: tile center coordinates of the predictions as (b, n, 2) NumPy float arrays in the range of the input point cloud's bounding box. We store only X and Y as the height is always 0. Since empty tiles are omitted, we need to explicitly store the predicted tile coordinates for registration in the input coordinate system.
+- `*.ply`: 3D representations of the predicted heightmaps as one point cloud.
+Please see ipes_base.py for more details.
+
+
+## Trouble Shooting
 
 On Windows, Pip install may raise a 
 "Microsoft Visual C++ 14.0 or greater is required. 

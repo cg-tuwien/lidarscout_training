@@ -1,6 +1,6 @@
 torch>=2
 torchvision
---index-url https://download.pytorch.org/whl/cu117
+--index-url https://download.pytorch.org/whl/cu124
 pytorch-lightning>=2.0
 pyg>=2.3
 torch-cluster>=1.6.0
