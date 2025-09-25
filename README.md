@@ -47,6 +47,8 @@ Results (extract to `[repo_root]/results`):
 - https://users.cg.tuwien.ac.at/perler/lidarscout/results/ipes_rast.zip
 - https://users.cg.tuwien.ac.at/perler/lidarscout/results/ipes_unet.zip
 
+These models and results were generated with an older environment: Python 3.10.13, PyTorch 1.12.1, and NumPy 1.26.0.
+
 
 ## Create your own datasets
 
