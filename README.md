@@ -30,22 +30,11 @@ cd lidarscout_training
 
 ## Datasets, Model and Results
 
-Datasets for training (extract to have the `bins` folder and several text files in `[repo_root]/datasets/laz_minimal/`): https://users.cg.tuwien.ac.at/perler/lidarscout/laz_minimal.zip
+Download the data from our long-term storage: https://doi.org/10.48436/443tr-j4096
 
-Models for evaluation (extract to have e.g. `ipes_cnn` in `[repo_root]/models`): https://users.cg.tuwien.ac.at/perler/lidarscout/models.zip
-
-Results (extract to `[repo_root]/results`):
-- (main) https://users.cg.tuwien.ac.at/perler/lidarscout/results/ipes_cnn_rgb.zip
-- (main without color) https://users.cg.tuwien.ac.at/perler/lidarscout/results/ipes_cnn.zip
-- (best with extra training data) https://users.cg.tuwien.ac.at/perler/lidarscout/results/ipes_cnn_allstar.zip
-- https://users.cg.tuwien.ac.at/perler/lidarscout/results/ipes_cnn_colorizer.zip
-- https://users.cg.tuwien.ac.at/perler/lidarscout/results/ipes_cnn_only_lin.zip
-- https://users.cg.tuwien.ac.at/perler/lidarscout/results/ipes_cnn_only_nn.zip
-- https://users.cg.tuwien.ac.at/perler/lidarscout/results/ipes_interp_cubic.zip
-- https://users.cg.tuwien.ac.at/perler/lidarscout/results/ipes_interp_linear.zip
-- https://users.cg.tuwien.ac.at/perler/lidarscout/results/ipes_interp_nearest.zip
-- https://users.cg.tuwien.ac.at/perler/lidarscout/results/ipes_rast.zip
-- https://users.cg.tuwien.ac.at/perler/lidarscout/results/ipes_unet.zip
+- Datasets: extract the `dataset_laz_minimal.zip` to have the `bins` folder and several text files in `[repo_root]/datasets/laz_minimal/`).
+- Models: extract the `models_lidarscout.zip` to have e.g. `ipes_cnn` in `[repo_root]/models`).
+- Results: extract the `results_*.zip` to `[repo_root]/results`). They contain predictions as NumPy files and full reconstruction height maps as PLY point clouds.
 
 These models and results were generated with an older environment: Python 3.10.13, PyTorch 1.12.1, and NumPy 1.26.0.
 
