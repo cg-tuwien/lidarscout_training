@@ -108,6 +108,13 @@ class TorchScriptModelCheckpoint(ModelCheckpoint):
         # from torch.onnx import dynamo_export  # new exporter supports control flow
         # dynamo_export(network, model_kwargs={'batch': make_example_data()}).save(model_script_path_onnx)
 
+        # save hyperparameters
+        model_hyperparams_path = os.path.join(self.dirpath, 'hyperparams.yaml')
+        print(f'\nSaving model hyperparameters to {model_hyperparams_path}')
+        make_dir_for_file(file=model_hyperparams_path)
+        network.save_hyperparameters(model_hyperparams_path)
+
+        # trace and save model for libtorch
         model_script_path_libtorch = os.path.join(self.dirpath, 'last.pt')
         print(f'\nSaving TorchScript model to {model_script_path_libtorch}')
         make_dir_for_file(file=model_script_path_libtorch)

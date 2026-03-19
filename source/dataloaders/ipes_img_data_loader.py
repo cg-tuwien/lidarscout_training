@@ -27,7 +27,7 @@ class IpesImgDataModule(IpesDataModule):
         # clear pts_to_img cache on start, first epoch will be slow
         from source.dataloaders.base_data_module import get_dataset_dir
         cache_dir = os.path.join(get_dataset_dir(self.in_file), 'img_cache')
-        if os.path.exists(cache_dir):
+        if os.path.exists(cache_dir): # refresh cache on every startup
             import shutil
             shutil.rmtree(cache_dir)
 

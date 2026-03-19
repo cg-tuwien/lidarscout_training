@@ -51,7 +51,7 @@ def write_ply(file_path: str, points: np.ndarray, normals=None, colors=None):
         if arr.shape[0] == 3 and arr.shape[1] != 3:
             arr = arr.transpose([1, 0])
 
-        if arr.shape[-1] != 3:
+        if arr.shape[-1] not in (3, 4):
             raise ValueError('Unexpected shape for point data: {}'.format(arr.shape))
 
         return arr
@@ -99,6 +99,9 @@ def pts_to_img(
     elif method == 'cubic':
         return interpolate_patch(
             pts_ps_xy=pts_ps_xy, pts_data=pts_data, resolution=resolution, method='cubic')
+    elif method == 'barymax':
+        return interpolate_patch_barymax(
+            pts_ps_xy=pts_ps_xy, pts_data=pts_data, resolution=resolution, method='barymax')
     elif method == 'knngauss':
         return knn_gauss(pts_ps_xy=pts_ps_xy, pts_data=pts_data, res=resolution)
     else:
@@ -234,7 +237,7 @@ def rasterize_pts(
     for i in range(data_channels):
         sparse_mat = coo_matrix((pts_data_unique[:, i], pts_coo_unique), shape=mat_shape)
 
-        hm = sparse_mat.A
+        hm = sparse_mat.toarray()
         hm = hm.T
         hm[hm == 0.0] = np.nan  # mark zeros as unknown
 
@@ -298,6 +301,60 @@ def interpolate_patch(pts_ps_xy, pts_data: np.ndarray, resolution, method='linea
     grid_z_ps_linear = grid_z_ps_linear.T
 
     return grid_z_ps_linear
+
+
+def interpolate_patch_barymax(pts_ps_xy, pts_data: np.ndarray, resolution, method='barymax'):
+    """
+    Interpolate by triangulation and return maximum barycentric coordinate for each pixel.
+    
+    For each pixel, this computes the maximum barycentric coordinate with respect to the
+    containing triangle. This is useful for mesh-aware interpolation where the maximum
+    coordinate indicates distance from edges.
+    
+    :param pts_ps_xy: (n, 2) array of 2D points
+    :param pts_data: (n,) array of values, one per point
+    :param resolution: int, target image resolution
+    :param method: str, should be 'barymax' (included for compatibility)
+    :return: (resolution, resolution) array of maximum barycentric coordinates
+    """
+    from scipy.spatial import Delaunay
+
+    if pts_ps_xy.shape[0] < 3:
+        print('WARNING: At least 3 points are required for triangulation')
+        return np.full((resolution, resolution), np.nan, dtype=np.float32)
+
+    # keep compatibility with interpolate_patch scaling
+    pts_ps_xy = np.asarray(pts_ps_xy, dtype=np.float64) * get_magic_scaling_factor()
+
+    tri = Delaunay(pts_ps_xy)
+
+    # same grid convention as interpolate_patch
+    steps = complex(0.0, resolution)
+    hm_size_ps = 0.5
+    grid_x, grid_y = np.mgrid[-hm_size_ps:hm_size_ps:steps, -hm_size_ps:hm_size_ps:steps]
+    grid_xy = np.column_stack((grid_x.ravel(), grid_y.ravel()))
+
+    simplex_ids = tri.find_simplex(grid_xy)
+    inside_mask = simplex_ids >= 0
+
+    max_bary_coords = np.full(grid_xy.shape[0], 0.0, dtype=np.float32)
+    if np.any(inside_mask):
+        simplex_ids_inside = simplex_ids[inside_mask]
+        grid_xy_inside = grid_xy[inside_mask]
+
+        # Delaunay stores affine transforms to barycentric coordinates for each simplex.
+        transforms = tri.transform[simplex_ids_inside, :2, :]  # (n, 2, 2)
+        offsets = tri.transform[simplex_ids_inside, 2, :]      # (n, 2)
+
+        bary_uv = np.einsum('nij,nj->ni', transforms, grid_xy_inside - offsets)
+        u = bary_uv[:, 0]
+        v = bary_uv[:, 1]
+        w = 1.0 - u - v
+
+        max_bary_coords[inside_mask] = np.maximum(np.maximum(u, v), w).astype(np.float32)
+
+    # fix ij indexing of mgrid
+    return max_bary_coords.reshape(resolution, resolution).T
 
 
 def knn_gauss(pts_ps_xy: np.ndarray, pts_data: np.ndarray, res: int, padding: int = 16, k=20):
@@ -428,7 +485,7 @@ def _unit_test_rasterize():
         'rast_nearest_min', 'rast_nearest_max', 'rast_nearest_mean',
         'rast_linear_min', 'rast_linear_max', 'rast_linear_mean',
         # 'rast_rbflinear_min', 'rast_rbflinear_max', 'rast_rbflinear_mean',
-        'nearest', 'linear', 'cubic'
+        'nearest', 'linear', 'cubic', 'barymax'
     ]
     hms = []
     durations = []

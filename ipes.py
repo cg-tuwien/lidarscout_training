@@ -99,6 +99,7 @@ def cli_main():
 def fixed_cmd():
     # name = 'ipes_cnn'
     name = 'ipes_cnn_rgb'
+    # name = 'ipes_cnn_barymax'
     # name = 'ipes_cnn_colorizer'
     # name = 'ipes_cnn_only_nn'
     # name = 'ipes_cnn_only_lin'
@@ -110,6 +111,7 @@ def fixed_cmd():
     configs = [
         '-c', 'configs/ipes_cnn.yaml',
         '-c', 'configs/ipes_cnn_rgb.yaml',
+        # '-c', 'configs/ipes_cnn_barymax.yaml',
         # '-c', 'configs/ipes_cnn_colorizer.yaml',
         # '-c', 'configs/ipes_cnn_only_nn.yaml',
         # '-c', 'configs/ipes_cnn_only_lin.yaml',

@@ -1,0 +1,16 @@
+data:
+  init_args:
+    pts_to_img_methods:
+    - 'linear'
+    - 'barymax'
+    rgb_to_img_methods:
+    - 'linear'
+    - 'barymax'
+
+model:
+  init_args:
+    has_color_input: True
+    has_color_output: True
+    output_names:
+      - 'hm_val'
+      - 'hm_rgb'

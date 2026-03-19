@@ -74,3 +74,39 @@ def aggregate_dicts(dicts: typing.Sequence[typing.Mapping[typing.Any, 'torch.Ten
             raise ValueError()
         dict_aggregated[k] = values
     return dict_aggregated
+
+def dict_np_double_to_float(patch_data: dict):
+    # convert values to 32-bit float if necessary
+    for key in patch_data.keys():
+        val = patch_data[key]
+        if isinstance(val, np.ndarray):
+            if val.dtype == np.float64:
+                patch_data[key] = val.astype(np.float32)
+    return patch_data
+
+def dict_np_to_torch(patch_data: dict):
+    # convert values to tensors if necessary
+    from torch import from_numpy, Tensor, tensor
+    import numbers
+
+    for key in patch_data.keys():
+        val = patch_data[key]
+        if isinstance(val, np.ndarray):
+            patch_data[key] = from_numpy(val.copy())
+        elif isinstance(val, Tensor):
+            pass  # nothing to do
+        elif np.isscalar(val):
+            if isinstance(val, numbers.Number):
+                patch_data[key] = tensor(val)
+            elif isinstance(val, str):
+                patch_data[key] = val
+            else:  # try to keep type and let pytorch handle it
+                patch_data[key] = val
+        elif isinstance(val, list):
+            patch_data[key] = val  # keep list, no ragged tensors possible
+        elif val is None:
+            pass
+        else:
+            raise NotImplementedError('Key: {}, Type:{}'.format(key, type(val)))
+
+    return patch_data

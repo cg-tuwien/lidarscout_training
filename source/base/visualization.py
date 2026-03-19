@@ -71,6 +71,29 @@ def get_vis_file(batch_data: dict, name, step, iteration, results_dir, b):
         raise NotImplementedError()
     return arr_file
 
+def get_vis_params(batch_data: dict, step: str):
+    if step in ['train', 'val']:  # only few samples to see progress
+        vis_batches_range = range(min(batch_data['pts_query_ms'].shape[0], 10))
+    elif step in ['test', 'predict']:  # visualize all
+        vis_batches_range = range(batch_data['pts_query_ms'].shape[0])
+    else:
+        raise NotImplementedError()
+
+    if step in ['train', 'val', 'test']:
+        hm_finite = batch_data['hm_gt_ps'].detach().cpu().numpy().astype(np.float32)
+        hm_finite[np.isnan(hm_finite)] = np.nanmin(hm_finite)
+        # norm_min = np.nanmin(hm_finite)
+        # norm_max = np.nanmax(hm_finite)
+        norm_min = -3.0
+        norm_max = 3.0
+    elif step == 'predict':
+        hm_finite = None
+        norm_min = -3.0
+        norm_max = 3.0
+    else:
+        raise NotImplementedError('Unknown step: {}'.format(step))
+
+    return vis_batches_range, hm_finite, norm_min, norm_max
 
 def save_pts_local_ms(name, step, iteration,
                       batch_data, results_dir, vis_batches_range,
