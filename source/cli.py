@@ -168,6 +168,10 @@ class Cli(LightningCLI):
         # torch.set_float32_matmul_precision('medium')  # PPSurf 50NN: 5.123h, ABC CD 0.012920511
         torch.set_float32_matmul_precision('high')  # PPSurf 50NN: xh, ABC CD y
         # torch.set_float32_matmul_precision('highest')  # PPSurf 50NN: xh, ABC CD y
+        
+        # this is deprecated in pytorch, update when pytorch-lightning supports it:
+        # torch.backends.cuda.matmul.fp32_precision = "tf32"
+        # torch.backends.cudnn.conv.fp32_precision = "tf32"
 
         if bool(self.cur_config().debug):
             os.environ['CUDA_LAUNCH_BLOCKING'] = '1'

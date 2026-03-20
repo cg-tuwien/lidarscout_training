@@ -20,6 +20,9 @@ class IpesRgbd(IpesBase):
         self.has_color_output = has_color_output
 
         super().__init__(predict_batch_size, debug, show_unused_params, name)
+        
+        self.keys_to_log = self.keys_to_log.union(frozenset({'rgb_psnr', 'rgb_gradient_rmse'}))
+        
 
     def compute_loss_rgb_sparse(self, pred, batch_data):
         # 'works' with only query points, no GT RGB maps necessary
@@ -79,6 +82,17 @@ class IpesRgbd(IpesBase):
         return rgb_loss
 
     @staticmethod
+    def compute_loss_rgb_huber(pred, batch_data):
+        rgb_target = batch_data['rgb_gt'].clone()
+        unknown_mask = torch.isnan(rgb_target)
+        rgb_target[unknown_mask] = 0.0
+        rgb_loss = nn.functional.huber_loss(input=pred, target=rgb_target, reduction='none')
+        rgb_loss[unknown_mask] = 0.0  # ignore nan (unknown GT)
+        rgb_loss = torch.clip(rgb_loss, min=0.0, max=1.0)
+        rgb_loss = rgb_loss.sum(1)  # sum over RGB channels
+        return rgb_loss
+
+    @staticmethod
     def compute_loss_rgb_l1(pred, batch_data):
         rgb_target = batch_data['rgb_gt'].clone()
         unknown_mask = torch.isnan(rgb_target)
@@ -130,6 +144,7 @@ class IpesRgbd(IpesBase):
             loss_components += [
                 # self.compute_loss_rgb_sparse(pred[:, 1:4], batch_data),
                 IpesRgbd.compute_loss_rgb(pred[:, 1:4], batch_data),
+                # IpesRgbd.compute_loss_rgb_huber(pred[:, 1:4], batch_data),
                 # IpesRgbd.compute_loss_rgb_l1(pred[:, 1:4], batch_data),
                 # IpesRgbd.compute_loss_rgb_lpips(pred[:, 1:4], batch_data),
                 # IpesRgbd.compute_loss_rgb_ssim(pred[:, 1:4], batch_data),
@@ -157,21 +172,26 @@ class IpesRgbd(IpesBase):
         if self.has_color_output:
             pred = pred.detach()
             pred_proc = self.post_proc_pred(batch, pred)
-            pred_rgb_flat = pred_proc[:, 1:4].detach().reshape(-1)
-            rgb_target_flat = batch['rgb_gt'].detach().flatten().reshape(-1)
+            pred_rgb = pred_proc[:, 1:4].detach()
+            pred_rgb_flat = pred_rgb.flatten().reshape(-1)
+            
+            rgb_target = batch['rgb_gt'].detach()
+            rgb_target_flat = rgb_target.flatten().reshape(-1)
 
             # ignore all nans (cut from tensor)
-            rgb_target_nan = torch.isnan(rgb_target_flat)
-            rgb_pred_nan = torch.isnan(pred_rgb_flat)
+            rgb_target_nan = torch.isnan(rgb_target)
+            rgb_pred_nan = torch.isnan(pred_rgb)
             rgb_nan = torch.logical_or(rgb_target_nan, rgb_pred_nan)
-            pred_rgb_flat_no_nan = pred_rgb_flat[~rgb_nan]
-            rgb_target_flat_no_nan = rgb_target_flat[~rgb_nan]
+            rgb_nan_flat = rgb_nan.flatten().reshape(-1)
+            pred_rgb_flat_no_nan = pred_rgb_flat[~rgb_nan_flat]
+            rgb_target_flat_no_nan = rgb_target_flat[~rgb_nan_flat]
 
             rgb_e = pred_rgb_flat_no_nan - rgb_target_flat_no_nan
             rgb_rmse = torch.sqrt(torch.mean(torch.square(rgb_e)))
 
-            from source.base.metrics import psnr, lpips
+            from source.base.metrics import psnr, lpips, gradient_rmse
             rgb_psnr = psnr(pred_rgb_flat_no_nan, rgb_target_flat_no_nan, 255.0)
+            rgb_gradient_rmse = gradient_rmse(pred_rgb, rgb_target)
 
             # ignore all nans (fill from prediction)
             # pred_rgb = pred_proc[:, 1:4].detach()
@@ -184,6 +204,7 @@ class IpesRgbd(IpesBase):
             rgb_metrics = {
                 'rgb_rmse': rgb_rmse,
                 'rgb_psnr': rgb_psnr,
+                'rgb_gradient_rmse': rgb_gradient_rmse,
                 # 'rgb_lpips': rgb_lpips.mean(),
             }
             eval_dict = {**hm_metrics, **rgb_metrics}
@@ -205,22 +226,22 @@ class IpesRgbd(IpesBase):
 
         test_set_file_name = os.path.basename(self.in_file)
         output_file = os.path.join(results_dir, 'metrics_{}_{}.xlsx'.format(self.name, test_set_file_name))
-        metrics_keys_to_log = ('abs_dist_rmse_ms', 'abs_dist_rmse_ps')
+        metrics_keys_to_log = ('abs_dist_rmse_ms', )
         if self.has_color_output:
-            # metrics_keys_to_log += ('rgb_rmse', 'rgb_psnr', 'rgb_lpips')
-            metrics_keys_to_log += ('rgb_rmse', 'rgb_psnr')
+            metrics_keys_to_log += ('rgb_rmse', 'rgb_psnr', 'rgb_gradient_rmse')
         low_metrics_better = [True, False, True, True, False, False, False]
         loss_total_mean, metrics = make_test_report(
             shape_names=shape_names, results=metrics_dicts_stacked,
             output_file=output_file, output_names=self.output_names, is_dict=True,
             metrics_keys_to_log=metrics_keys_to_log, low_metrics_better=low_metrics_better)
 
-        abs_dist_rmse_ms_mean = metrics[0]
+        abs_dist_rmse_ms_mean = metrics[metrics_keys_to_log.index('abs_dist_rmse_ms')]
         self.log('epoch/test/RMSE_ms', abs_dist_rmse_ms_mean, on_step=False, on_epoch=True, logger=True)
         log_str = f'\nTest results (mean): Loss={loss_total_mean}, HM RMSE_ms={abs_dist_rmse_ms_mean}'
         if self.has_color_output:
-            rgb_psnr_mean = metrics[3]
-            log_str += f', RGB PSNR={rgb_psnr_mean}'
+            rgb_psnr_mean = metrics[metrics_keys_to_log.index('rgb_psnr')]
+            rgb_gradient_rmse_mean = metrics[metrics_keys_to_log.index('rgb_gradient_rmse')]
+            log_str += f', RGB PSNR={rgb_psnr_mean}, RGB Gradient RMSE={rgb_gradient_rmse_mean}'
         print(log_str)
 
     def post_proc_pred(self, batch: dict, pred):

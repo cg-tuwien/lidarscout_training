@@ -18,7 +18,7 @@ class IpesBase(BaseModule):
 
         # self.lr = 0.001  # for lr tuner, not sure if this is used afterward
         self.test_step_outputs = []
-        self.keys_to_log = frozenset({'abs_dist_rmse_ps', 'abs_dist_rmse_ms'})
+        self.keys_to_log = frozenset({'abs_dist_rmse_ms'})
         self.regressor = self.make_regressor()
 
         self.predict_batch_size = predict_batch_size
@@ -119,19 +119,20 @@ class IpesBase(BaseModule):
         hm_pred_ps_nan = torch.isnan(pred_hm_ps)
         hm_nan = torch.logical_or(hm_target_ps_nan, hm_pred_ps_nan)
 
-        pred_hm_ps_no_nan = pred_hm_ps[~hm_nan]
+        # pred_hm_ps_no_nan = pred_hm_ps[~hm_nan]
         pred_hm_ms_no_nan = pred_hm_ms[~hm_nan]
-        height_target_ps_no_nan = hm_target_ps[~hm_nan]
+        # height_target_ps_no_nan = hm_target_ps[~hm_nan]
         height_target_ms_no_nan = hm_target_ms[~hm_nan]
 
-        hm_e_ps = pred_hm_ps_no_nan - height_target_ps_no_nan
+        # hm_e_ps = pred_hm_ps_no_nan - height_target_ps_no_nan
         hm_e_ms = pred_hm_ms_no_nan - height_target_ms_no_nan
 
-        hm_rmse_ps = torch.sqrt(torch.mean(torch.square(hm_e_ps)))
+        # hm_rmse_ps = torch.sqrt(torch.mean(torch.square(hm_e_ps)))
         hm_rmse_ms = torch.sqrt(torch.mean(torch.square(hm_e_ms)))
 
         eval_dict = {'abs_dist_rmse_ms': hm_rmse_ms,
-                     'abs_dist_rmse_ps': hm_rmse_ps,}
+                    #  'abs_dist_rmse_ps': hm_rmse_ps,
+                     }
         return eval_dict
 
     def post_proc_pred(self, batch: dict, pred):
@@ -232,16 +233,16 @@ class IpesBase(BaseModule):
         metrics_dicts_stacked = aggregate_dicts(outputs_flat, method='stack')
 
         output_file = os.path.join(results_dir, 'metrics_{}.xlsx'.format(self.name))
+        metrics_keys_to_log = ['abs_dist_rmse_ps', 'abs_dist_rmse_ms']
         loss_total_mean, metrics = make_test_report(
             shape_names=shape_names, results=metrics_dicts_stacked,
             output_file=output_file, output_names=self.output_names, is_dict=True,
-            metrics_keys_to_log=frozenset(['abs_dist_rmse_ps', 'abs_dist_rmse_ms']))
+            metrics_keys_to_log=frozenset(metrics_keys_to_log))
 
-        abs_dist_rmse_ps_mean = metrics[0]
-        abs_dist_rmse_ms_mean = metrics[1]
+        abs_dist_rmse_ms_mean = metrics[metrics_keys_to_log.index('abs_dist_rmse_ms')]
         self.log('epoch/test/RMSE_ms', abs_dist_rmse_ms_mean, on_step=False, on_epoch=True, logger=True)
-        print('\nTest results (mean): Loss={}, RMSE={}, RMSE_ms={}'.format(
-            loss_total_mean, abs_dist_rmse_ps_mean, abs_dist_rmse_ms_mean))
+        print('\nTest results (mean): Loss={}, RMSE_ms={}'.format(
+            loss_total_mean, abs_dist_rmse_ms_mean))
 
     def fix_heightmaps_for_prediction(self, batch: dict) -> dict:
         # reconstruction query points are just 2D

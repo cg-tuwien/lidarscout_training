@@ -72,7 +72,7 @@ def pts_to_img(
             'rast_nearest_min', 'rast_nearest_max', 'rast_nearest_mean',
             'rast_linear_min', 'rast_linear_max', 'rast_linear_mean',
             'rast_rbflinear_min', 'rast_rbflinear_max', 'rast_rbflinear_mean',
-            'nearest', 'linear', 'cubic',
+            'nearest', 'linear', 'cubic', 'barymax',
             'hqsplat', 'knngauss'],
         border_pixels=16, context_radius_factor=1.5):
 
