@@ -18,10 +18,13 @@ class IpesBase(BaseModule):
 
         # self.lr = 0.001  # for lr tuner, not sure if this is used afterward
         self.test_step_outputs = []
-        self.keys_to_log = frozenset({'abs_dist_rmse_ms'})
+        self.keys_to_log = frozenset({'hm_rmse_ms', 'hm_gradient_rmse'})
         self.regressor = self.make_regressor()
 
         self.predict_batch_size = predict_batch_size
+        
+        self.hm_loss_weight = nn.Parameter(torch.zeros(1))
+        self.hm_grad_loss_weight = nn.Parameter(torch.zeros(1))
 
     @abc.abstractmethod
     def make_regressor(self):
@@ -75,6 +78,14 @@ class IpesBase(BaseModule):
         return hm_seam_loss
 
     @staticmethod
+    def compute_loss_hm_gradient(pred, batch_data):
+        from source.base.metrics import gradient_loss_masked
+        hm_target = batch_data['hm_gt_ps'].clone()
+        hm_gradient_loss = gradient_loss_masked(pred.unsqueeze(1), hm_target.unsqueeze(1))[:, 0]  # temp channel dim
+        hm_gradient_loss = torch.clip(hm_gradient_loss, min=0.0, max=1.0)
+        return hm_gradient_loss
+    
+    @staticmethod
     def compute_loss_mean(pred, batch_data):
         mean_loss = nn.functional.mse_loss(input=pred, target=batch_data['hm_mean'], reduction='none')
         mean_loss = torch.clip(mean_loss, min=0.0, max=0.01)
@@ -83,6 +94,7 @@ class IpesBase(BaseModule):
 
     def compute_loss(self, pred, batch_data):
         import math
+        from source.base.metrics import learned_loss_weighting
 
         # keep same order as in yaml
         loss_components = [
@@ -90,10 +102,16 @@ class IpesBase(BaseModule):
             # IpesBase.compute_loss_gradient(pred, batch_data),
             # self.compute_loss_hm_seam(hm_loss),
             # IpesBase.compute_loss_mean(pred, batch_data),
+        
+            IpesBase.compute_loss_hm_gradient(pred, batch_data),
         ]
 
         loss_components_mean = [torch.mean(loss) for loss in loss_components]
-
+        
+        # learned weighting for heights
+        loss_components_mean[0] = learned_loss_weighting(loss_components_mean[0], self.hm_loss_weight)
+        loss_components_mean[1] = learned_loss_weighting(loss_components_mean[1], self.hm_grad_loss_weight)
+            
         loss_components = torch.stack(loss_components)
         loss_components_mean = torch.stack(loss_components_mean)
         loss_tensor = loss_components_mean.mean()

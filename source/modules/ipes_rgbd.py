@@ -23,6 +23,9 @@ class IpesRgbd(IpesBase):
         
         self.keys_to_log = self.keys_to_log.union(frozenset({'rgb_psnr', 'rgb_gradient_rmse'}))
         
+        self.rgb_loss_weight = nn.Parameter(torch.zeros(1))
+        self.rgb_grad_loss_weight = nn.Parameter(torch.zeros(1))
+        
 
     def compute_loss_rgb_sparse(self, pred, batch_data):
         # 'works' with only query points, no GT RGB maps necessary
@@ -133,31 +136,47 @@ class IpesRgbd(IpesBase):
         w = rgb_target.shape[3]
         rgb_loss = rgb_loss[:, None, None].broadcast_to((b, h, w))
         return rgb_loss
-
+    
+    @staticmethod
+    def compute_loss_rgb_gradient(pred, batch_data):
+        from source.base.metrics import gradient_loss_masked
+        rgb_target = batch_data['rgb_gt'].clone()
+        rgb_gradient_loss = gradient_loss_masked(pred, rgb_target)
+        rgb_gradient_loss = torch.clip(rgb_gradient_loss, min=0.0, max=1.0)
+        rgb_gradient_loss = rgb_gradient_loss.sum(1)  # sum over RGB channels
+        return rgb_gradient_loss
+    
     def compute_loss(self, pred, batch_data):
         import math
+        from source.base.metrics import learned_loss_weighting
 
         # keep same order as in yaml
-        loss_components = [IpesBase.compute_loss_hm(pred[:, 0], batch_data),]
+        loss_tensor, loss_components_mean, loss_components = super().compute_loss(pred[:, 0], batch_data)
 
         if self.has_color_output:
-            loss_components += [
+            new_loss_components = [
                 # self.compute_loss_rgb_sparse(pred[:, 1:4], batch_data),
-                IpesRgbd.compute_loss_rgb(pred[:, 1:4], batch_data),
-                # IpesRgbd.compute_loss_rgb_huber(pred[:, 1:4], batch_data),
+                # IpesRgbd.compute_loss_rgb(pred[:, 1:4], batch_data),
+                IpesRgbd.compute_loss_rgb_huber(pred[:, 1:4], batch_data),
                 # IpesRgbd.compute_loss_rgb_l1(pred[:, 1:4], batch_data),
                 # IpesRgbd.compute_loss_rgb_lpips(pred[:, 1:4], batch_data),
                 # IpesRgbd.compute_loss_rgb_ssim(pred[:, 1:4], batch_data),
+                
+                IpesRgbd.compute_loss_rgb_gradient(pred[:, 1:4], batch_data),
             ]
 
-        # loss_components += [IpesBase.compute_loss_hm_seam(loss_components[0]),]
-
-        loss_components_mean = [torch.mean(loss) for loss in loss_components]
-
-        loss_components = torch.stack(loss_components)
-        loss_components_mean = torch.stack(loss_components_mean)
-        loss_tensor = loss_components_mean.mean()
-
+            new_loss_components_mean = [torch.mean(loss) for loss in new_loss_components]
+            
+            # learned weighting for RGB
+            new_loss_components_mean[0] = learned_loss_weighting(new_loss_components_mean[0], self.rgb_loss_weight)
+            new_loss_components_mean[1] = learned_loss_weighting(new_loss_components_mean[1], self.rgb_grad_loss_weight)
+            
+            new_loss_components_mean = [torch.mean(loss) for loss in new_loss_components_mean]
+            loss_components_mean = torch.cat((loss_components_mean, torch.stack(new_loss_components_mean)))
+            loss_tensor = loss_components_mean.mean()
+            
+            loss_components = torch.cat((loss_components, torch.stack(new_loss_components_mean)))
+        
         if math.isclose(loss_tensor.item(), 0.0):
             print('loss is close to zero')
 
@@ -190,7 +209,7 @@ class IpesRgbd(IpesBase):
             rgb_rmse = torch.sqrt(torch.mean(torch.square(rgb_e)))
 
             from source.base.metrics import psnr, lpips, gradient_rmse
-            rgb_psnr = psnr(pred_rgb_flat_no_nan, rgb_target_flat_no_nan, 255.0)
+            rgb_psnr = psnr(pred_rgb_flat_no_nan, rgb_target_flat_no_nan, 1.0)
             rgb_gradient_rmse = gradient_rmse(pred_rgb, rgb_target)
 
             # ignore all nans (fill from prediction)
