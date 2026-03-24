@@ -147,9 +147,16 @@ class IpesRgbd(IpesBase):
         rgb_gradient_loss = rgb_gradient_loss.sum(1)  # sum over RGB channels
         return rgb_gradient_loss
     
+    @staticmethod
+    def slice_center_rgb(img: torch.Tensor, res_out: int) -> torch.Tensor:
+        res_in = img.shape[2]  # assume square and channels first
+        diff = (res_in - res_out) // 2
+        img  = img[:, :, diff:diff + res_out, diff:diff + res_out]
+        return img
+    
     def compute_loss(self, pred, batch_data):
         import math
-        from source.base.metrics import learned_loss_weighting
+        from source.base.metrics import learned_loss_weighting, density_weighted_loss
 
         # keep same order as in yaml
         loss_tensor, loss_components_mean, loss_components = super().compute_loss(pred[:, 0], batch_data)
@@ -165,6 +172,10 @@ class IpesRgbd(IpesBase):
                 
                 # IpesRgbd.compute_loss_rgb_gradient(pred[:, 1:4], batch_data),
             ]
+            
+            rgb_lin_center = self.slice_center_rgb(batch_data['patch_rgb_linear'], res_out=pred.shape[2])
+            rgb_nn_center = self.slice_center_rgb(batch_data['patch_rgb_nearest'], res_out=pred.shape[2])
+            new_loss_components[0] = density_weighted_loss(new_loss_components[0], rgb_lin_center, rgb_nn_center, alpha=5.0)
             
             loss_components = torch.cat((loss_components, torch.stack(new_loss_components)))
 

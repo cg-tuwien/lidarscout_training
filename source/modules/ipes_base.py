@@ -92,10 +92,17 @@ class IpesBase(BaseModule):
         mean_loss = torch.clip(mean_loss, min=0.0, max=0.01)
         mean_loss = torch.broadcast_to(mean_loss[:, :, np.newaxis, np.newaxis], batch_data['hm_gt_ps'].shape)
         return mean_loss
+    
+    @staticmethod
+    def slice_center(img: torch.Tensor, res_out: int) -> torch.Tensor:
+        res_in = img.shape[1]  # assume square and channels first
+        diff = (res_in - res_out) // 2
+        img  = img[:, diff:diff + res_out, diff:diff + res_out]
+        return img
 
     def compute_loss(self, pred, batch_data):
         import math
-        from source.base.metrics import learned_loss_weighting
+        from source.base.metrics import learned_loss_weighting, density_weighted_loss
 
         # keep same order as in yaml
         loss_components = [
@@ -106,6 +113,10 @@ class IpesBase(BaseModule):
         
             # IpesBase.compute_loss_hm_gradient(pred, batch_data),
         ]
+        
+        hm_lin_center = self.slice_center(batch_data['patch_hm_linear'][:, 0], res_out=pred.shape[2])
+        hm_nn_center = self.slice_center(batch_data['patch_hm_nearest'][:, 0], res_out=pred.shape[2])
+        loss_components[0] = density_weighted_loss(loss_components[0], hm_lin_center, hm_nn_center, alpha=5.0)
         
         loss_components = torch.stack(loss_components)
         

@@ -98,7 +98,15 @@ def cli_main():
 
 def fixed_cmd():
     # name = 'ipes_cnn'
-    name = 'ipes_cnn_rgb'
+    # name = 'ipes_cnn_rgb'
+    name = 'ipes_cnn_rgb_density_weighted'
+    # name = 'ipes_cnn_rgb_again3'
+    # name = 'ipes_cnn_rgb_gradient'
+    # name = 'ipes_cnn_rgb_gradient_learned_loss_weighting'
+    # name = 'ipes_cnn_rgb_gradient_learned_loss_weighting2'
+    # name = 'ipes_cnn_rgb_huber_l1'
+    # name = 'ipes_cnn_rgb_huber_l2'
+    # name = 'ipes_cnn_rgb_gemini_2'
     # name = 'ipes_cnn_barymax'
     # name = 'ipes_cnn_colorizer'
     # name = 'ipes_cnn_only_nn'
@@ -110,8 +118,8 @@ def fixed_cmd():
 
     configs = [
         '-c', 'configs/ipes_cnn.yaml',
-        # '-c', 'configs/ipes_cnn_rgb.yaml',
-        '-c', 'configs/ipes_cnn_rgb_grad.yaml',
+        '-c', 'configs/ipes_cnn_rgb.yaml',
+        # '-c', 'configs/ipes_cnn_rgb_grad.yaml',
         # '-c', 'configs/ipes_cnn_barymax.yaml',
         # '-c', 'configs/ipes_cnn_colorizer.yaml',
         # '-c', 'configs/ipes_cnn_only_nn.yaml',

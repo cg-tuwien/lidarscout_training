@@ -113,3 +113,29 @@ def learned_loss_weighting(loss: 'torch.Tensor', weight: 'torch.Tensor') -> 'tor
     import torch
     weighted_loss = torch.exp(-weight) * loss + weight
     return weighted_loss
+
+def density_weighted_loss(loss_per_pixel: 'torch.Tensor', lin_input: 'torch.Tensor', nn_input: 'torch.Tensor', alpha=5.0):
+    """
+    Dynamically scales the MSE loss based on the underlying point cloud density.
+    Instead of fighting the CNN's urge to smooth, we control where it is allowed to smooth. We use the absolute difference between your Linear and Nearest Neighbor inputs as a real-time density map.
+    Where lin and nn are identical (Dense Areas), we multiply the L2 loss by a huge number. The network is forced to perfectly memorize the sharp Voronoi edges of the nn input.
+    Where lin and nn are vastly different (Sparse/Interpolated Areas), we multiply the L2 loss by near-zero. The network is given a "free pass" to smooth the terrain to connect the dots safely.
+    alpha: Controls how aggressively to ignore sparse areas. Higher = focus only on dense.
+    """
+    
+    import torch
+    
+    delta = torch.abs(lin_input - nn_input)
+    
+    if delta.ndim > 3:  # assume channel dim at 1: (B, C, H, W) -> (B, H, W)
+            delta = delta.mean(dim=1)
+    
+    weight_mask = torch.exp(-alpha * delta)
+    
+    # Normalize the mask so the overall learning rate doesn't collapse
+    weight_mask = weight_mask / (torch.mean(weight_mask) + 1e-8)
+        
+    # Apply density weights and the valid mask
+    weighted_loss = loss_per_pixel * weight_mask
+    
+    return weighted_loss
