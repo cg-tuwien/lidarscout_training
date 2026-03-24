@@ -110,7 +110,8 @@ def fixed_cmd():
 
     configs = [
         '-c', 'configs/ipes_cnn.yaml',
-        '-c', 'configs/ipes_cnn_rgb.yaml',
+        # '-c', 'configs/ipes_cnn_rgb.yaml',
+        '-c', 'configs/ipes_cnn_rgb_grad.yaml',
         # '-c', 'configs/ipes_cnn_barymax.yaml',
         # '-c', 'configs/ipes_cnn_colorizer.yaml',
         # '-c', 'configs/ipes_cnn_only_nn.yaml',

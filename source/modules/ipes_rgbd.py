@@ -21,10 +21,11 @@ class IpesRgbd(IpesBase):
 
         super().__init__(predict_batch_size, debug, show_unused_params, name)
         
-        self.keys_to_log = self.keys_to_log.union(frozenset({'rgb_psnr', 'rgb_gradient_rmse'}))
+        self.keys_to_log = self.keys_to_log.union(frozenset({'rgb_psnr', }))
+        # self.keys_to_log = self.keys_to_log.union(frozenset({'rgb_psnr', 'rgb_gradient_rmse'}))
         
         self.rgb_loss_weight = nn.Parameter(torch.zeros(1))
-        self.rgb_grad_loss_weight = nn.Parameter(torch.zeros(1))
+        # self.rgb_grad_loss_weight = nn.Parameter(torch.zeros(1))
         
 
     def compute_loss_rgb_sparse(self, pred, batch_data):
@@ -156,26 +157,25 @@ class IpesRgbd(IpesBase):
         if self.has_color_output:
             new_loss_components = [
                 # self.compute_loss_rgb_sparse(pred[:, 1:4], batch_data),
-                # IpesRgbd.compute_loss_rgb(pred[:, 1:4], batch_data),
-                IpesRgbd.compute_loss_rgb_huber(pred[:, 1:4], batch_data),
+                IpesRgbd.compute_loss_rgb(pred[:, 1:4], batch_data),
+                # IpesRgbd.compute_loss_rgb_huber(pred[:, 1:4], batch_data),
                 # IpesRgbd.compute_loss_rgb_l1(pred[:, 1:4], batch_data),
                 # IpesRgbd.compute_loss_rgb_lpips(pred[:, 1:4], batch_data),
                 # IpesRgbd.compute_loss_rgb_ssim(pred[:, 1:4], batch_data),
                 
-                IpesRgbd.compute_loss_rgb_gradient(pred[:, 1:4], batch_data),
+                # IpesRgbd.compute_loss_rgb_gradient(pred[:, 1:4], batch_data),
             ]
+            
+            loss_components = torch.cat((loss_components, torch.stack(new_loss_components)))
 
-            new_loss_components_mean = [torch.mean(loss) for loss in new_loss_components]
+            new_loss_components_mean = torch.stack([torch.mean(loss) for loss in new_loss_components])
+            loss_components_mean = torch.cat((loss_components_mean, new_loss_components_mean))
             
             # learned weighting for RGB
-            new_loss_components_mean[0] = learned_loss_weighting(new_loss_components_mean[0], self.rgb_loss_weight)
-            new_loss_components_mean[1] = learned_loss_weighting(new_loss_components_mean[1], self.rgb_grad_loss_weight)
-            
-            new_loss_components_mean = [torch.mean(loss) for loss in new_loss_components_mean]
-            loss_components_mean = torch.cat((loss_components_mean, torch.stack(new_loss_components_mean)))
-            loss_tensor = loss_components_mean.mean()
-            
-            loss_components = torch.cat((loss_components, torch.stack(new_loss_components_mean)))
+            new_loss_components_mean_weighted = torch.zeros_like(new_loss_components_mean)
+            new_loss_components_mean_weighted[0] = learned_loss_weighting(new_loss_components_mean[0], self.rgb_loss_weight[0])
+            # new_loss_components_mean_weighted[1] = learned_loss_weighting(new_loss_components_mean[1], self.rgb_grad_loss_weight[0])
+            loss_tensor = loss_tensor + new_loss_components_mean_weighted.sum()
         
         if math.isclose(loss_tensor.item(), 0.0):
             print('loss is close to zero')
@@ -231,6 +231,16 @@ class IpesRgbd(IpesBase):
             eval_dict = hm_metrics
         return eval_dict
 
+    def validation_step(self, batch, batch_idx):
+        loss = super().validation_step(batch, batch_idx)
+        
+        self.log('epoch/val/weights/rgb_loss_weight', self.rgb_loss_weight.item(),
+                 on_step=False, on_epoch=True, logger=True, batch_size=batch['pts_query_ms'].shape[0])
+        # self.log('epoch/val/weights/rgb_grad_loss_weight', self.rgb_grad_loss_weight.item(),
+        #          on_step=False, on_epoch=True, logger=True, batch_size=batch['pts_query_ms'].shape[0])
+        
+        return loss
+
     def on_test_epoch_end(self):
 
         from source.base.evaluation import make_test_report
@@ -245,7 +255,7 @@ class IpesRgbd(IpesBase):
 
         test_set_file_name = os.path.basename(self.in_file)
         output_file = os.path.join(results_dir, 'metrics_{}_{}.xlsx'.format(self.name, test_set_file_name))
-        metrics_keys_to_log = ('abs_dist_rmse_ms', )
+        metrics_keys_to_log = ('hm_rmse_ms', )
         if self.has_color_output:
             metrics_keys_to_log += ('rgb_rmse', 'rgb_psnr', 'rgb_gradient_rmse')
         low_metrics_better = [True, False, True, True, False, False, False]
@@ -254,9 +264,9 @@ class IpesRgbd(IpesBase):
             output_file=output_file, output_names=self.output_names, is_dict=True,
             metrics_keys_to_log=metrics_keys_to_log, low_metrics_better=low_metrics_better)
 
-        abs_dist_rmse_ms_mean = metrics[metrics_keys_to_log.index('abs_dist_rmse_ms')]
-        self.log('epoch/test/RMSE_ms', abs_dist_rmse_ms_mean, on_step=False, on_epoch=True, logger=True)
-        log_str = f'\nTest results (mean): Loss={loss_total_mean}, HM RMSE_ms={abs_dist_rmse_ms_mean}'
+        hm_rmse_ms_mean = metrics[metrics_keys_to_log.index('hm_rmse_ms')]
+        self.log('epoch/test/RMSE_ms', hm_rmse_ms_mean, on_step=False, on_epoch=True, logger=True)
+        log_str = f'\nTest results (mean): Loss={loss_total_mean}, HM RMSE_ms={hm_rmse_ms_mean}'
         if self.has_color_output:
             rgb_psnr_mean = metrics[metrics_keys_to_log.index('rgb_psnr')]
             rgb_gradient_rmse_mean = metrics[metrics_keys_to_log.index('rgb_gradient_rmse')]

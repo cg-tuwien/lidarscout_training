@@ -18,13 +18,14 @@ class IpesBase(BaseModule):
 
         # self.lr = 0.001  # for lr tuner, not sure if this is used afterward
         self.test_step_outputs = []
-        self.keys_to_log = frozenset({'hm_rmse_ms', 'hm_gradient_rmse'})
+        self.keys_to_log = frozenset({'hm_rmse_ms',})
+        # self.keys_to_log = frozenset({'hm_rmse_ms', 'hm_gradient_rmse'})
         self.regressor = self.make_regressor()
 
         self.predict_batch_size = predict_batch_size
         
         self.hm_loss_weight = nn.Parameter(torch.zeros(1))
-        self.hm_grad_loss_weight = nn.Parameter(torch.zeros(1))
+        # self.hm_grad_loss_weight = nn.Parameter(torch.zeros(1))
 
     @abc.abstractmethod
     def make_regressor(self):
@@ -103,18 +104,19 @@ class IpesBase(BaseModule):
             # self.compute_loss_hm_seam(hm_loss),
             # IpesBase.compute_loss_mean(pred, batch_data),
         
-            IpesBase.compute_loss_hm_gradient(pred, batch_data),
+            # IpesBase.compute_loss_hm_gradient(pred, batch_data),
         ]
-
+        
+        loss_components = torch.stack(loss_components)
+        
         loss_components_mean = [torch.mean(loss) for loss in loss_components]
+        loss_components_mean = torch.stack(loss_components_mean)
         
         # learned weighting for heights
-        loss_components_mean[0] = learned_loss_weighting(loss_components_mean[0], self.hm_loss_weight)
-        loss_components_mean[1] = learned_loss_weighting(loss_components_mean[1], self.hm_grad_loss_weight)
-            
-        loss_components = torch.stack(loss_components)
-        loss_components_mean = torch.stack(loss_components_mean)
-        loss_tensor = loss_components_mean.mean()
+        loss_components_mean_weighted = torch.zeros_like(loss_components_mean)
+        loss_components_mean_weighted[0] = learned_loss_weighting(loss_components_mean[0], self.hm_loss_weight[0])
+        # loss_components_mean_weighted[1] = learned_loss_weighting(loss_components_mean[1], self.hm_grad_loss_weight[0])
+        loss_tensor = loss_components_mean_weighted.sum()
 
         if math.isclose(loss_tensor.item(), 0.0):
             print('loss is close to zero')
@@ -148,8 +150,8 @@ class IpesBase(BaseModule):
         # hm_rmse_ps = torch.sqrt(torch.mean(torch.square(hm_e_ps)))
         hm_rmse_ms = torch.sqrt(torch.mean(torch.square(hm_e_ms)))
 
-        eval_dict = {'abs_dist_rmse_ms': hm_rmse_ms,
-                    #  'abs_dist_rmse_ps': hm_rmse_ps,
+        eval_dict = {'hm_rmse_ms': hm_rmse_ms,
+                    #  'hm_rmse_ps': hm_rmse_ps,
                      }
         return eval_dict
 
@@ -192,7 +194,7 @@ class IpesBase(BaseModule):
             batch=batch, step='train')
         self.do_logging(loss, loss_components_mean, log_type='train',
                         output_names=self.output_names, metrics_dict=metrics_dict, show_in_prog_bar=True,
-                        keys_to_log=self.keys_to_log, key_to_log_prog_bar='abs_dist_rmse_ms')
+                        keys_to_log=self.keys_to_log, key_to_log_prog_bar='hm_rmse_ms')
         return loss
 
     def validation_step(self, batch, batch_idx):
@@ -209,10 +211,15 @@ class IpesBase(BaseModule):
         self.log('epoch/val/gpu_mem_gb', memory_allocated() / 1024 / 1024 / 1024,
                  on_step=False, on_epoch=True, logger=True, batch_size=batch['pts_query_ms'].shape[0])
 
+        self.log('epoch/val/weights/hm_loss_weight', self.hm_loss_weight.item(),
+                 on_step=False, on_epoch=True, logger=True, batch_size=batch['pts_query_ms'].shape[0])
+        # self.log('epoch/val/weights/hm_grad_loss_weight', self.hm_grad_loss_weight.item(),
+        #          on_step=False, on_epoch=True, logger=True, batch_size=batch['pts_query_ms'].shape[0])
+        
         loss, loss_components_mean, loss_components, metrics_dict, pred = step_data
         self.do_logging(loss, loss_components_mean, log_type='val',
                         output_names=self.output_names, metrics_dict=metrics_dict, show_in_prog_bar=True,
-                        keys_to_log=self.keys_to_log, key_to_log_prog_bar='abs_dist_rmse_ms')
+                        keys_to_log=self.keys_to_log, key_to_log_prog_bar='hm_rmse_ms')
         return loss
 
     def test_step(self, batch, batch_idx):
@@ -251,16 +258,16 @@ class IpesBase(BaseModule):
         metrics_dicts_stacked = aggregate_dicts(outputs_flat, method='stack')
 
         output_file = os.path.join(results_dir, 'metrics_{}.xlsx'.format(self.name))
-        metrics_keys_to_log = ['abs_dist_rmse_ps', 'abs_dist_rmse_ms']
+        metrics_keys_to_log = ['hm_rmse_ps', 'hm_rmse_ms']
         loss_total_mean, metrics = make_test_report(
             shape_names=shape_names, results=metrics_dicts_stacked,
             output_file=output_file, output_names=self.output_names, is_dict=True,
             metrics_keys_to_log=frozenset(metrics_keys_to_log))
 
-        abs_dist_rmse_ms_mean = metrics[metrics_keys_to_log.index('abs_dist_rmse_ms')]
-        self.log('epoch/test/RMSE_ms', abs_dist_rmse_ms_mean, on_step=False, on_epoch=True, logger=True)
+        hm_rmse_ms_mean = metrics[metrics_keys_to_log.index('hm_rmse_ms')]
+        self.log('epoch/test/RMSE_ms', hm_rmse_ms_mean, on_step=False, on_epoch=True, logger=True)
         print('\nTest results (mean): Loss={}, RMSE_ms={}'.format(
-            loss_total_mean, abs_dist_rmse_ms_mean))
+            loss_total_mean, hm_rmse_ms_mean))
 
     def fix_heightmaps_for_prediction(self, batch: dict) -> dict:
         # reconstruction query points are just 2D

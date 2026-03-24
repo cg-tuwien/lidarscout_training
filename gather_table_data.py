@@ -19,7 +19,7 @@ runs = [
 
 header = [
     'file',
-    'abs_dist_rmse_ms_mean', 'abs_dist_rmse_ms_std',
+    'hm_rmse_ms_mean', 'hm_rmse_ms_std',
     'rgb_psnr_mean', 'rgb_psnr_std',
     'rgb_lpips_mean', 'rgb_lpips_std'
 ]

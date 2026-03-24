@@ -10,4 +10,6 @@ model:
     has_color_output: True
     output_names:
       - 'hm'
+      - 'hm_grad'
       - 'rgb'
+      - 'rgb_grad'

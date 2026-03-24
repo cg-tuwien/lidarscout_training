@@ -107,7 +107,9 @@ def lpips(prediction: 'torch.Tensor', target: 'torch.Tensor',
     return loss
 
 def learned_loss_weighting(loss: 'torch.Tensor', weight: 'torch.Tensor') -> 'torch.Tensor':
-    """Learnable multi-task loss weighting from https://openaccess.thecvf.com/content_cvpr_2018/papers/Kendall_Multi-Task_Learning_Using_CVPR_2018_paper.pdf"""
+    """Learnable multi-task loss weighting from https://openaccess.thecvf.com/content_cvpr_2018/papers/Kendall_Multi-Task_Learning_Using_CVPR_2018_paper.pdf
+    both tensor are of shape [], scalars
+    """
     import torch
     weighted_loss = torch.exp(-weight) * loss + weight
     return weighted_loss
