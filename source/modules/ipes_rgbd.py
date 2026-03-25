@@ -25,6 +25,7 @@ class IpesRgbd(IpesBase):
         self.keys_to_log = self.keys_to_log.union(frozenset({'rgb_psnr', 'rgb_gradient_rmse'}))
         
         self.rgb_loss_weight = nn.Parameter(torch.zeros(1))
+        self.rgb_fft_loss_weight = nn.Parameter(torch.zeros(1))
         # self.rgb_grad_loss_weight = nn.Parameter(torch.zeros(1))
         
 
@@ -148,6 +149,13 @@ class IpesRgbd(IpesBase):
         return rgb_gradient_loss
     
     @staticmethod
+    def compute_loss_rgb_fft(pred, batch_data):
+        from source.base.metrics import fft_amplitude_loss
+        rgb_loss = fft_amplitude_loss(pred, batch_data['rgb_gt'].clone())
+        rgb_loss = torch.mean(rgb_loss, dim=1)  # mean over RGB channels
+        return rgb_loss
+
+    @staticmethod
     def slice_center_rgb(img: torch.Tensor, res_out: int) -> torch.Tensor:
         res_in = img.shape[2]  # assume square and channels first
         diff = (res_in - res_out) // 2
@@ -161,35 +169,39 @@ class IpesRgbd(IpesBase):
         # keep same order as in yaml
         loss_tensor, loss_components_mean, loss_components = super().compute_loss(pred[:, 0], batch_data)
 
-        if self.has_color_output:
-            new_loss_components = [
-                # self.compute_loss_rgb_sparse(pred[:, 1:4], batch_data),
-                IpesRgbd.compute_loss_rgb(pred[:, 1:4], batch_data),
-                # IpesRgbd.compute_loss_rgb_huber(pred[:, 1:4], batch_data),
-                # IpesRgbd.compute_loss_rgb_l1(pred[:, 1:4], batch_data),
-                # IpesRgbd.compute_loss_rgb_lpips(pred[:, 1:4], batch_data),
-                # IpesRgbd.compute_loss_rgb_ssim(pred[:, 1:4], batch_data),
-                
-                # IpesRgbd.compute_loss_rgb_gradient(pred[:, 1:4], batch_data),
-            ]
-            
-            rgb_target = batch_data['rgb_gt']
-            valid_mask_rgb = ~torch.isnan(rgb_target[:, 0])
-            rgb_lin_center = self.slice_center_rgb(batch_data['patch_rgb_linear'], res_out=pred.shape[2])
-            rgb_nn_center = self.slice_center_rgb(batch_data['patch_rgb_nearest'], res_out=pred.shape[2])
-            new_loss_components[0] = density_weighted_loss(new_loss_components[0], rgb_lin_center, rgb_nn_center, alpha=5.0)
-            
-            loss_components = torch.cat((loss_components, torch.stack(new_loss_components)))
+        if not self.has_color_output:
+            return loss_tensor, loss_components_mean, loss_components
+        
+        new_loss_components = [
+            # self.compute_loss_rgb_sparse(pred[:, 1:4], batch_data),
+            IpesRgbd.compute_loss_rgb(pred[:, 1:4], batch_data),
+            # IpesRgbd.compute_loss_rgb_huber(pred[:, 1:4], batch_data),
+            # IpesRgbd.compute_loss_rgb_l1(pred[:, 1:4], batch_data),
+            # IpesRgbd.compute_loss_rgb_lpips(pred[:, 1:4], batch_data),
+            # IpesRgbd.compute_loss_rgb_ssim(pred[:, 1:4], batch_data),
+            # IpesRgbd.compute_loss_rgb_gradient(pred[:, 1:4], batch_data),
+            IpesRgbd.compute_loss_rgb_fft(pred[:, 1:4], batch_data),
+        ]
+        
+        # density weighted loss
+        rgb_target = batch_data['rgb_gt']
+        valid_mask_rgb = ~torch.isnan(rgb_target[:, 0])
+        # rgb_lin_center = self.slice_center_rgb(batch_data['patch_rgb_linear'], res_out=pred.shape[2])
+        # rgb_nn_center = self.slice_center_rgb(batch_data['patch_rgb_nearest'], res_out=pred.shape[2])
+        # new_loss_components[0] = density_weighted_loss(new_loss_components[0], rgb_lin_center, rgb_nn_center, alpha=5.0)
+        
+        loss_components = torch.cat((loss_components, torch.stack(new_loss_components)))
 
-            valid_count_rgb = valid_mask_rgb.sum() + 1e-8
-            new_loss_components_mean = torch.stack([torch.sum(loss) / valid_count_rgb for loss in new_loss_components])
-            loss_components_mean = torch.cat((loss_components_mean, new_loss_components_mean))
-            
-            # learned weighting for RGB
-            new_loss_components_mean_weighted = torch.zeros_like(new_loss_components_mean)
-            new_loss_components_mean_weighted[0] = learned_loss_weighting(new_loss_components_mean[0], self.rgb_loss_weight[0])
-            # new_loss_components_mean_weighted[1] = learned_loss_weighting(new_loss_components_mean[1], self.rgb_grad_loss_weight[0])
-            loss_tensor = loss_tensor + new_loss_components_mean_weighted.sum()
+        valid_count_rgb = valid_mask_rgb.sum() + 1e-8
+        new_loss_components_mean = torch.stack([torch.sum(loss) / valid_count_rgb for loss in new_loss_components])
+        loss_components_mean = torch.cat((loss_components_mean, new_loss_components_mean))
+        
+        # learned weighting for RGB
+        new_loss_components_mean_weighted = torch.zeros_like(new_loss_components_mean)
+        new_loss_components_mean_weighted[0] = learned_loss_weighting(new_loss_components_mean[0], self.rgb_loss_weight[0])
+        new_loss_components_mean_weighted[1] = learned_loss_weighting(new_loss_components_mean[1], self.rgb_fft_loss_weight[0])
+        # new_loss_components_mean_weighted[1] = learned_loss_weighting(new_loss_components_mean[1], self.rgb_grad_loss_weight[0])
+        loss_tensor = loss_tensor + new_loss_components_mean_weighted.sum()
         
         if math.isclose(loss_tensor.item(), 0.0):
             print('loss is close to zero')
@@ -202,53 +214,55 @@ class IpesRgbd(IpesBase):
     def calc_metrics(self, pred, batch):
         hm_metrics = super().calc_metrics(pred, batch)
 
-        if self.has_color_output:
-            pred = pred.detach()
-            pred_proc = self.post_proc_pred(batch, pred)
-            pred_rgb = pred_proc[:, 1:4].detach()
-            pred_rgb_flat = pred_rgb.flatten().reshape(-1)
-            
-            rgb_target = batch['rgb_gt'].detach()
-            rgb_target_flat = rgb_target.flatten().reshape(-1)
+        if not self.has_color_output:
+            return hm_metrics
+        
+        pred = pred.detach()
+        pred_proc = self.post_proc_pred(batch, pred)
+        pred_rgb = pred_proc[:, 1:4].detach()
+        pred_rgb_flat = pred_rgb.flatten()
+        
+        rgb_target = batch['rgb_gt'].detach()
+        rgb_target_flat = rgb_target.flatten()
 
-            # ignore all nans (cut from tensor)
-            rgb_target_nan = torch.isnan(rgb_target)
-            rgb_pred_nan = torch.isnan(pred_rgb)
-            rgb_nan = torch.logical_or(rgb_target_nan, rgb_pred_nan)
-            rgb_nan_flat = rgb_nan.flatten().reshape(-1)
-            pred_rgb_flat_no_nan = pred_rgb_flat[~rgb_nan_flat]
-            rgb_target_flat_no_nan = rgb_target_flat[~rgb_nan_flat]
+        # ignore all nans (cut from tensor)
+        rgb_target_nan = torch.isnan(rgb_target)
+        rgb_pred_nan = torch.isnan(pred_rgb)
+        rgb_nan = torch.logical_or(rgb_target_nan, rgb_pred_nan)
+        rgb_nan_flat = rgb_nan.flatten()
+        pred_rgb_flat_no_nan = pred_rgb_flat[~rgb_nan_flat]
+        rgb_target_flat_no_nan = rgb_target_flat[~rgb_nan_flat]
 
-            rgb_e = pred_rgb_flat_no_nan - rgb_target_flat_no_nan
-            rgb_rmse = torch.sqrt(torch.mean(torch.square(rgb_e)))
+        rgb_e = pred_rgb_flat_no_nan - rgb_target_flat_no_nan
+        rgb_rmse = torch.sqrt(torch.mean(torch.square(rgb_e)))
 
-            from source.base.metrics import psnr, lpips, gradient_rmse
-            rgb_psnr = psnr(pred_rgb_flat_no_nan, rgb_target_flat_no_nan, 1.0)
-            rgb_gradient_rmse = gradient_rmse(pred_rgb, rgb_target)
+        from source.base.metrics import psnr, lpips, gradient_rmse
+        rgb_psnr = psnr(pred_rgb_flat_no_nan, rgb_target_flat_no_nan, 1.0)
+        rgb_gradient_rmse = gradient_rmse(pred_rgb, rgb_target)
 
-            # ignore all nans (fill from prediction)
-            # pred_rgb = pred_proc[:, 1:4].detach()
-            # rgb_target = batch['rgb_gt'].detach()
-            # rgb_target_nan = torch.isnan(rgb_target)
-            # rgb_target_no_nan = rgb_target.clone()
-            # rgb_target_no_nan[rgb_target_nan] = pred_rgb[rgb_target_nan]
-            # rgb_lpips = lpips(pred_rgb, rgb_target_no_nan)
+        # ignore all nans (fill from prediction)
+        # pred_rgb = pred_proc[:, 1:4].detach()
+        # rgb_target = batch['rgb_gt'].detach()
+        # rgb_target_nan = torch.isnan(rgb_target)
+        # rgb_target_no_nan = rgb_target.clone()
+        # rgb_target_no_nan[rgb_target_nan] = pred_rgb[rgb_target_nan]
+        # rgb_lpips = lpips(pred_rgb, rgb_target_no_nan)
 
-            rgb_metrics = {
-                'rgb_rmse': rgb_rmse,
-                'rgb_psnr': rgb_psnr,
-                'rgb_gradient_rmse': rgb_gradient_rmse,
-                # 'rgb_lpips': rgb_lpips.mean(),
-            }
-            eval_dict = {**hm_metrics, **rgb_metrics}
-        else:
-            eval_dict = hm_metrics
+        rgb_metrics = {
+            'rgb_rmse': rgb_rmse,
+            'rgb_psnr': rgb_psnr,
+            'rgb_gradient_rmse': rgb_gradient_rmse,
+            # 'rgb_lpips': rgb_lpips.mean(),
+        }
+        eval_dict = {**hm_metrics, **rgb_metrics}
         return eval_dict
 
     def validation_step(self, batch, batch_idx):
         loss = super().validation_step(batch, batch_idx)
         
         self.log('epoch/val/weights/rgb_loss_weight', self.rgb_loss_weight.item(),
+                 on_step=False, on_epoch=True, logger=True, batch_size=batch['pts_query_ms'].shape[0])
+        self.log('epoch/val/weights/rgb_fft_loss_weight', self.rgb_fft_loss_weight.item(),
                  on_step=False, on_epoch=True, logger=True, batch_size=batch['pts_query_ms'].shape[0])
         # self.log('epoch/val/weights/rgb_grad_loss_weight', self.rgb_grad_loss_weight.item(),
         #          on_step=False, on_epoch=True, logger=True, batch_size=batch['pts_query_ms'].shape[0])

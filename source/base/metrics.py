@@ -155,3 +155,38 @@ def density_weighted_loss(loss_per_pixel: 'torch.Tensor', lin_input: 'torch.Tens
     weighted_loss[torch.isnan(weighted_loss)] = 0.0
     
     return weighted_loss
+
+def fft_amplitude_loss(prediction: 'torch.Tensor', target: 'torch.Tensor'):
+    """
+    Computes the L1 loss on the frequency amplitude spectrum.
+    Forces the network to generate high-frequency details (sharpness) 
+    without demanding pixel-perfect spatial alignment.
+    """
+    import torch
+    import torch.nn.functional as F
+    
+    valid_mask = ~torch.isnan(target)
+    
+    # Failsafe for completely empty patches (e.g., SWISSS3D with no colors)
+    if not valid_mask.any():
+        return torch.zeros_like(prediction, device=prediction.device, requires_grad=True)
+        
+    # 1. Apply the exact same mask to both Prediction and Ground Truth.
+    # This ensures the artificial "cliffs" at the boundary are identical 
+    # and don't penalize the network.
+    target_safe = torch.nan_to_num(target, nan=0.0)
+    pred_masked = prediction * valid_mask.float()
+    
+    # 2. Compute the 2D Fast Fourier Transform
+    # norm="ortho" keeps the energy scale consistent
+    fft_pred = torch.fft.fft2(pred_masked, norm="ortho")
+    fft_gt = torch.fft.fft2(target_safe, norm="ortho")
+    
+    # 3. Extract the Amplitude (Magnitude) spectrum
+    # We add a tiny epsilon to prevent autograd crashes at exactly 0
+    amp_pred = torch.abs(fft_pred) + 1e-8
+    amp_gt = torch.abs(fft_gt) + 1e-8
+    
+    # 4. Calculate the L1 loss on the amplitudes
+    # L1 works best here to avoid over-penalizing massive frequency spikes
+    return F.l1_loss(amp_pred, amp_gt, reduction='none')

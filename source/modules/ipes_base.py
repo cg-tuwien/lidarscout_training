@@ -25,6 +25,7 @@ class IpesBase(BaseModule):
         self.predict_batch_size = predict_batch_size
         
         self.hm_loss_weight = nn.Parameter(torch.zeros(1))
+        self.hm_fft_loss_weight = nn.Parameter(torch.zeros(1))
         # self.hm_grad_loss_weight = nn.Parameter(torch.zeros(1))
 
     @abc.abstractmethod
@@ -40,7 +41,7 @@ class IpesBase(BaseModule):
         height_loss[unknown_mask] = 0.0  # ignore nan (unknown GT)
         height_loss = torch.clip(height_loss, min=0.0, max=1.0)
         return height_loss
-
+    
     @staticmethod
     def compute_loss_gradient(pred, batch_data):
         height_target = batch_data['hm_gt_ps'].clone()
@@ -94,6 +95,12 @@ class IpesBase(BaseModule):
         return mean_loss
     
     @staticmethod
+    def compute_loss_hm_fft(pred, batch_data):
+        from source.base.metrics import fft_amplitude_loss
+        height_loss = fft_amplitude_loss(pred, batch_data['hm_gt_ps'].clone())
+        return height_loss
+
+    @staticmethod
     def slice_center(img: torch.Tensor, res_out: int) -> torch.Tensor:
         res_in = img.shape[1]  # assume square and channels first
         diff = (res_in - res_out) // 2
@@ -110,16 +117,16 @@ class IpesBase(BaseModule):
             # IpesBase.compute_loss_gradient(pred, batch_data),
             # self.compute_loss_hm_seam(hm_loss),
             # IpesBase.compute_loss_mean(pred, batch_data),
-        
             # IpesBase.compute_loss_hm_gradient(pred, batch_data),
+            IpesBase.compute_loss_hm_fft(pred, batch_data),
         ]
         
         # density weighted loss
         hm_target = batch_data['hm_gt_ps']
         valid_mask = ~torch.isnan(hm_target[:, 0]) if hm_target.ndim == 4 else ~torch.isnan(hm_target)
-        hm_lin_center = self.slice_center(batch_data['patch_hm_linear'][:, 0], res_out=pred.shape[2])
-        hm_nn_center = self.slice_center(batch_data['patch_hm_nearest'][:, 0], res_out=pred.shape[2])
-        loss_components[0] = density_weighted_loss(loss_components[0], hm_lin_center, hm_nn_center, alpha=5.0)
+        # hm_lin_center = self.slice_center(batch_data['patch_hm_linear'][:, 0], res_out=pred.shape[2])
+        # hm_nn_center = self.slice_center(batch_data['patch_hm_nearest'][:, 0], res_out=pred.shape[2])
+        # loss_components[0] = density_weighted_loss(loss_components[0], hm_lin_center, hm_nn_center, alpha=5.0)
         
         loss_components = torch.stack(loss_components)
         
@@ -130,6 +137,7 @@ class IpesBase(BaseModule):
         # learned weighting for heights
         loss_components_mean_weighted = torch.zeros_like(loss_components_mean)
         loss_components_mean_weighted[0] = learned_loss_weighting(loss_components_mean[0], self.hm_loss_weight[0])
+        loss_components_mean_weighted[1] = learned_loss_weighting(loss_components_mean[1], self.hm_fft_loss_weight[0])
         # loss_components_mean_weighted[1] = learned_loss_weighting(loss_components_mean[1], self.hm_grad_loss_weight[0])
         loss_tensor = loss_components_mean_weighted.sum()
 
@@ -143,19 +151,21 @@ class IpesBase(BaseModule):
 
     def calc_metrics(self, pred, batch):
         pred = pred.detach()
-        pred_hm_ps = pred[:, 0].reshape(-1)
-        pred_proc = self.post_proc_pred(batch, pred)
-        pred_hm_ms = pred_proc[:, 0].detach().reshape(-1)
+        pred_hm_ps = pred[:, 0]
+        pred_hm_ps_flat = pred[:, 0].flatten()
+        pred_hm_ms = self.post_proc_pred(batch, pred)
+        pred_hm_ms_flat = pred_hm_ms[:, 0].detach().flatten()
 
-        hm_target_ps = batch['hm_gt_ps'].detach().reshape(-1)
-        hm_target_ms = batch['hm_gt_ms'].detach().reshape(-1)
+        hm_target_ps = batch['hm_gt_ps'].detach()
+        hm_target_ps_flat = hm_target_ps.flatten()
+        hm_target_ms = batch['hm_gt_ms'].detach().flatten()
 
-        hm_target_ps_nan = torch.isnan(hm_target_ps)
-        hm_pred_ps_nan = torch.isnan(pred_hm_ps)
+        hm_target_ps_nan = torch.isnan(hm_target_ps_flat)
+        hm_pred_ps_nan = torch.isnan(pred_hm_ps_flat)
         hm_nan = torch.logical_or(hm_target_ps_nan, hm_pred_ps_nan)
 
         # pred_hm_ps_no_nan = pred_hm_ps[~hm_nan]
-        pred_hm_ms_no_nan = pred_hm_ms[~hm_nan]
+        pred_hm_ms_no_nan = pred_hm_ms_flat[~hm_nan]
         # height_target_ps_no_nan = hm_target_ps[~hm_nan]
         height_target_ms_no_nan = hm_target_ms[~hm_nan]
 
@@ -166,7 +176,7 @@ class IpesBase(BaseModule):
         hm_rmse_ms = torch.sqrt(torch.mean(torch.square(hm_e_ms)))
 
         from source.base.metrics import gradient_rmse
-        hm_gradient_rmse = gradient_rmse(pred_hm_ps, hm_target_ps)
+        hm_gradient_rmse = gradient_rmse(pred_hm_ps.unsqueeze(1), hm_target_ps.unsqueeze(1))
             
         eval_dict = {
             'hm_rmse_ms': hm_rmse_ms,
@@ -232,6 +242,8 @@ class IpesBase(BaseModule):
                  on_step=False, on_epoch=True, logger=True, batch_size=batch['pts_query_ms'].shape[0])
 
         self.log('epoch/val/weights/hm_loss_weight', self.hm_loss_weight.item(),
+                 on_step=False, on_epoch=True, logger=True, batch_size=batch['pts_query_ms'].shape[0])
+        self.log('epoch/val/weights/hm_fft_loss_weight', self.hm_fft_loss_weight.item(),
                  on_step=False, on_epoch=True, logger=True, batch_size=batch['pts_query_ms'].shape[0])
         # self.log('epoch/val/weights/hm_grad_loss_weight', self.hm_grad_loss_weight.item(),
         #          on_step=False, on_epoch=True, logger=True, batch_size=batch['pts_query_ms'].shape[0])
