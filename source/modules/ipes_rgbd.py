@@ -21,8 +21,8 @@ class IpesRgbd(IpesBase):
 
         super().__init__(predict_batch_size, debug, show_unused_params, name)
         
-        self.keys_to_log = self.keys_to_log.union(frozenset({'rgb_psnr', }))
-        # self.keys_to_log = self.keys_to_log.union(frozenset({'rgb_psnr', 'rgb_gradient_rmse'}))
+        # self.keys_to_log = self.keys_to_log.union(frozenset({'rgb_psnr', }))
+        self.keys_to_log = self.keys_to_log.union(frozenset({'rgb_psnr', 'rgb_gradient_rmse'}))
         
         self.rgb_loss_weight = nn.Parameter(torch.zeros(1))
         # self.rgb_grad_loss_weight = nn.Parameter(torch.zeros(1))
@@ -173,13 +173,16 @@ class IpesRgbd(IpesBase):
                 # IpesRgbd.compute_loss_rgb_gradient(pred[:, 1:4], batch_data),
             ]
             
+            rgb_target = batch_data['rgb_gt']
+            valid_mask_rgb = ~torch.isnan(rgb_target[:, 0])
             rgb_lin_center = self.slice_center_rgb(batch_data['patch_rgb_linear'], res_out=pred.shape[2])
             rgb_nn_center = self.slice_center_rgb(batch_data['patch_rgb_nearest'], res_out=pred.shape[2])
             new_loss_components[0] = density_weighted_loss(new_loss_components[0], rgb_lin_center, rgb_nn_center, alpha=5.0)
             
             loss_components = torch.cat((loss_components, torch.stack(new_loss_components)))
 
-            new_loss_components_mean = torch.stack([torch.mean(loss) for loss in new_loss_components])
+            valid_count_rgb = valid_mask_rgb.sum() + 1e-8
+            new_loss_components_mean = torch.stack([torch.sum(loss) / valid_count_rgb for loss in new_loss_components])
             loss_components_mean = torch.cat((loss_components_mean, new_loss_components_mean))
             
             # learned weighting for RGB

@@ -18,8 +18,8 @@ class IpesBase(BaseModule):
 
         # self.lr = 0.001  # for lr tuner, not sure if this is used afterward
         self.test_step_outputs = []
-        self.keys_to_log = frozenset({'hm_rmse_ms',})
-        # self.keys_to_log = frozenset({'hm_rmse_ms', 'hm_gradient_rmse'})
+        # self.keys_to_log = frozenset({'hm_rmse_ms',})
+        self.keys_to_log = frozenset({'hm_rmse_ms', 'hm_gradient_rmse'})
         self.regressor = self.make_regressor()
 
         self.predict_batch_size = predict_batch_size
@@ -114,13 +114,17 @@ class IpesBase(BaseModule):
             # IpesBase.compute_loss_hm_gradient(pred, batch_data),
         ]
         
+        # density weighted loss
+        hm_target = batch_data['hm_gt_ps']
+        valid_mask = ~torch.isnan(hm_target[:, 0]) if hm_target.ndim == 4 else ~torch.isnan(hm_target)
         hm_lin_center = self.slice_center(batch_data['patch_hm_linear'][:, 0], res_out=pred.shape[2])
         hm_nn_center = self.slice_center(batch_data['patch_hm_nearest'][:, 0], res_out=pred.shape[2])
         loss_components[0] = density_weighted_loss(loss_components[0], hm_lin_center, hm_nn_center, alpha=5.0)
         
         loss_components = torch.stack(loss_components)
         
-        loss_components_mean = [torch.mean(loss) for loss in loss_components]
+        valid_count = valid_mask.sum() + 1e-8
+        loss_components_mean = [torch.sum(loss) / valid_count for loss in loss_components]
         loss_components_mean = torch.stack(loss_components_mean)
         
         # learned weighting for heights
@@ -161,9 +165,14 @@ class IpesBase(BaseModule):
         # hm_rmse_ps = torch.sqrt(torch.mean(torch.square(hm_e_ps)))
         hm_rmse_ms = torch.sqrt(torch.mean(torch.square(hm_e_ms)))
 
-        eval_dict = {'hm_rmse_ms': hm_rmse_ms,
-                    #  'hm_rmse_ps': hm_rmse_ps,
-                     }
+        from source.base.metrics import gradient_rmse
+        hm_gradient_rmse = gradient_rmse(pred_hm_ps, hm_target_ps)
+            
+        eval_dict = {
+            'hm_rmse_ms': hm_rmse_ms,
+            #  'hm_rmse_ps': hm_rmse_ps,
+            'hm_gradient_rmse': hm_gradient_rmse,
+        }
         return eval_dict
 
     def post_proc_pred(self, batch: dict, pred):

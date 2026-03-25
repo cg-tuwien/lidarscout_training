@@ -115,27 +115,43 @@ def learned_loss_weighting(loss: 'torch.Tensor', weight: 'torch.Tensor') -> 'tor
     return weighted_loss
 
 def density_weighted_loss(loss_per_pixel: 'torch.Tensor', lin_input: 'torch.Tensor', nn_input: 'torch.Tensor', alpha=5.0):
-    """
-    Dynamically scales the MSE loss based on the underlying point cloud density.
-    Instead of fighting the CNN's urge to smooth, we control where it is allowed to smooth. We use the absolute difference between your Linear and Nearest Neighbor inputs as a real-time density map.
-    Where lin and nn are identical (Dense Areas), we multiply the L2 loss by a huge number. The network is forced to perfectly memorize the sharp Voronoi edges of the nn input.
-    Where lin and nn are vastly different (Sparse/Interpolated Areas), we multiply the L2 loss by near-zero. The network is given a "free pass" to smooth the terrain to connect the dots safely.
-    alpha: Controls how aggressively to ignore sparse areas. Higher = focus only on dense.
-    """
-    
     import torch
     
-    delta = torch.abs(lin_input - nn_input)
+    # 1. Catch the NaNs in the inputs immediately
+    nan_mask = torch.isnan(lin_input) | torch.isnan(nn_input)
     
-    if delta.ndim > 3:  # assume channel dim at 1: (B, C, H, W) -> (B, H, W)
-            delta = delta.mean(dim=1)
+    # 2. Safely compute the absolute difference
+    lin_safe = torch.nan_to_num(lin_input, nan=0.0)
+    nn_safe = torch.nan_to_num(nn_input, nan=0.0)
+    delta = torch.abs(lin_safe - nn_safe)
     
+    if delta.ndim > 3:  # (B, C, H, W) -> (B, H, W)
+        delta = delta.mean(dim=1)
+        nan_mask = nan_mask.any(dim=1)  # Collapse the mask as well
+        
+    # 3. Compute weights
     weight_mask = torch.exp(-alpha * delta)
     
-    # Normalize the mask so the overall learning rate doesn't collapse
-    weight_mask = weight_mask / (torch.mean(weight_mask) + 1e-8)
+    # 4. Zero out weights where inputs were NaN so they don't corrupt the mean
+    weight_mask[nan_mask] = 0.0
+    
+    # 5. Safe Normalization (Protect against empty SWISSS3D patches)
+    valid_pixels = (~nan_mask).sum()
+    if valid_pixels == 0:
+        # Patch is entirely empty/colorless. Return 0 to safely skip it.
+        return torch.zeros_like(loss_per_pixel)
         
-    # Apply density weights and the valid mask
+    mean_valid_weight = weight_mask.sum() / valid_pixels
+    weight_mask = weight_mask / (mean_valid_weight + 1e-8)
+    
+    # 6. Fix the broadcasting bug by aligning dimensions
+    if weight_mask.ndim < loss_per_pixel.ndim:
+        weight_mask = weight_mask.unsqueeze(1) # (B, H, W) -> (B, 1, H, W)
+        
+    # Apply weights
     weighted_loss = loss_per_pixel * weight_mask
+    
+    # Final safety net in case loss_per_pixel had unmasked NaNs
+    weighted_loss[torch.isnan(weighted_loss)] = 0.0
     
     return weighted_loss
