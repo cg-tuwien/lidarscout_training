@@ -1,5 +1,3 @@
-from operator import gt
-import os
 import typing
 
 import numpy as np

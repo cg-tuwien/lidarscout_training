@@ -113,6 +113,11 @@ In this case, install the MS Visual Studio build tools,
 as described on [Stackoverflow](https://stackoverflow.com/questions/64261546/how-to-solve-error-microsoft-visual-c-14-0-or-greater-is-required-when-inst).
 
 
+## Errata
+
+2026-03-26: The default maximum value for PSNR was 255 but the images were actually in 0..1 range. The correct PSNR values for this range is 48.131 lower, so around 22-23 dB for our results. We're sorry for the mess!
+
+
 ## Citation
 If you use our work, please cite our paper:
 ```
