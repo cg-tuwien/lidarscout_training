@@ -169,7 +169,7 @@ def fft_amplitude_loss(prediction: 'torch.Tensor', target: 'torch.Tensor'):
     
     # Failsafe for completely empty patches (e.g., SWISSS3D with no colors)
     if not valid_mask.any():
-        return torch.zeros_like(prediction, device=prediction.device, requires_grad=True)
+        return torch.zeros_like(prediction)
         
     # 1. Apply the exact same mask to both Prediction and Ground Truth.
     # This ensures the artificial "cliffs" at the boundary are identical 
@@ -187,6 +187,11 @@ def fft_amplitude_loss(prediction: 'torch.Tensor', target: 'torch.Tensor'):
     amp_pred = torch.abs(fft_pred) + 1e-8
     amp_gt = torch.abs(fft_gt) + 1e-8
     
-    # 4. Calculate the L1 loss on the amplitudes
+    # 4. FIX: Compress the dynamic range using log()
+    # This stops the network from hallucinating repeating checkerboard patterns
+    log_amp_pred = torch.log(amp_pred)
+    log_amp_gt = torch.log(amp_gt)
+    
+    # 5. Calculate the L1 loss on the amplitudes
     # L1 works best here to avoid over-penalizing massive frequency spikes
-    return F.l1_loss(amp_pred, amp_gt, reduction='none')
+    return F.l1_loss(log_amp_pred, log_amp_gt, reduction='none')

@@ -124,32 +124,6 @@ def patch_space_to_model_space_list(pts_to_convert_ps: typing.List[np.ndarray], 
     return pts_model_space
 
 
-def _test_normalize():
-    ms = 0.75
-    vs = 1.0 / 32
-    # padding_factor = 0.0
-    padding_factor = 0.05
-    pts_ms = np.array([[-ms, -ms], [-ms, +ms], [+ms, -ms], [+ms, +ms], [0.0, 0.0],
-                       [vs*0.3, -vs*0.3], [vs*0.5, -vs*0.5], [vs*0.6, -vs*0.6]])
-    pts_ms *= 76.0
-    pts_ms += 123.0
-
-    # vertices = np.random.random(size=(25, 2)) * 2.0 - 1.0
-    vertices = pts_ms
-
-    bb_center, scale = get_points_normalization_info(pts=pts_ms, padding_factor=padding_factor)
-    vertices_norm = normalize_points_with_info(pts=vertices, bb_center=bb_center, scale=scale)
-    vertices_denorm = denormalize_points_with_info(pts=vertices_norm, bb_center=bb_center, scale=scale)
-
-    if not np.allclose(vertices_denorm, vertices):
-        raise ValueError()
-
-    if vertices_norm.max() > 0.5 or vertices_norm.min() < -0.5:
-        raise ValueError()
-
-    return 0
-
-
 def _unit_test_ms_ps():
     patch_radius_ms = np.full(10, 0.1)
     numerical_stability_factor = 10.0

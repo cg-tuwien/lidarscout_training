@@ -24,8 +24,8 @@ class IpesRgbd(IpesBase):
         # self.keys_to_log = self.keys_to_log.union(frozenset({'rgb_psnr', }))
         self.keys_to_log = self.keys_to_log.union(frozenset({'rgb_psnr', 'rgb_gradient_rmse'}))
         
-        self.rgb_loss_weight = nn.Parameter(torch.zeros(1))
-        self.rgb_fft_loss_weight = nn.Parameter(torch.zeros(1))
+        # self.rgb_loss_weight = nn.Parameter(torch.zeros(1))
+        # self.rgb_fft_loss_weight = nn.Parameter(torch.zeros(1))
         # self.rgb_grad_loss_weight = nn.Parameter(torch.zeros(1))
         
 
@@ -85,6 +85,29 @@ class IpesRgbd(IpesBase):
         rgb_loss = torch.clip(rgb_loss, min=0.0, max=1.0)
         rgb_loss = rgb_loss.sum(1)  # sum over RGB channels
         return rgb_loss
+    
+    @staticmethod
+    def compute_loss_rgb_seam(pred: torch.Tensor, batch_data: dict, fall_off_factor=5.0):
+
+        loss_rgb = IpesRgbd.compute_loss_rgb(pred, batch_data)
+            
+        # higher loss weights near border
+        res = loss_rgb.shape[2]  # assume square
+        pixel_coords_x = torch.arange(res, device=loss_rgb.device)
+        pixel_coords_y = torch.arange(res, device=loss_rgb.device)
+        pixel_coords_x, pixel_coords_y = torch.meshgrid(pixel_coords_x, pixel_coords_y, indexing='xy')
+        center = (res - 1) / 2  # consider zero-based indexing
+        distances = torch.abs(pixel_coords_x - center) + torch.abs(pixel_coords_y - center)  # L1 norm
+        dist_norm = distances / res  # normalize to 0..1
+        dist_norm = torch.maximum(dist_norm * fall_off_factor, torch.zeros_like(dist_norm))
+        sum_to_one_factor = dist_norm.numel() / torch.sum(dist_norm)
+        dist_norm = dist_norm * sum_to_one_factor  # normalize so that the sum of weights is 1 per pixel
+
+        # repeat for batch dimension
+        dist_norm_bc = dist_norm[None].expand_as(loss_rgb)  # [b, rgb, res, res]
+
+        rgb_seam_loss = loss_rgb * dist_norm_bc
+        return rgb_seam_loss
 
     @staticmethod
     def compute_loss_rgb_huber(pred, batch_data):
@@ -175,12 +198,13 @@ class IpesRgbd(IpesBase):
         new_loss_components = [
             # self.compute_loss_rgb_sparse(pred[:, 1:4], batch_data),
             IpesRgbd.compute_loss_rgb(pred[:, 1:4], batch_data),
+            # IpesRgbd.compute_loss_rgb_seam(pred[:, 1:4], batch_data),
             # IpesRgbd.compute_loss_rgb_huber(pred[:, 1:4], batch_data),
             # IpesRgbd.compute_loss_rgb_l1(pred[:, 1:4], batch_data),
             # IpesRgbd.compute_loss_rgb_lpips(pred[:, 1:4], batch_data),
             # IpesRgbd.compute_loss_rgb_ssim(pred[:, 1:4], batch_data),
             # IpesRgbd.compute_loss_rgb_gradient(pred[:, 1:4], batch_data),
-            IpesRgbd.compute_loss_rgb_fft(pred[:, 1:4], batch_data),
+            # IpesRgbd.compute_loss_rgb_fft(pred[:, 1:4], batch_data),
         ]
         
         # density weighted loss
@@ -197,11 +221,12 @@ class IpesRgbd(IpesBase):
         loss_components_mean = torch.cat((loss_components_mean, new_loss_components_mean))
         
         # learned weighting for RGB
-        new_loss_components_mean_weighted = torch.zeros_like(new_loss_components_mean)
-        new_loss_components_mean_weighted[0] = learned_loss_weighting(new_loss_components_mean[0], self.rgb_loss_weight[0])
-        new_loss_components_mean_weighted[1] = learned_loss_weighting(new_loss_components_mean[1], self.rgb_fft_loss_weight[0])
+        # new_loss_components_mean_weighted = torch.zeros_like(new_loss_components_mean)
+        # new_loss_components_mean_weighted[0] = learned_loss_weighting(new_loss_components_mean[0], self.rgb_loss_weight[0])
+        # new_loss_components_mean_weighted[1] = learned_loss_weighting(new_loss_components_mean[1], self.rgb_fft_loss_weight[0])
         # new_loss_components_mean_weighted[1] = learned_loss_weighting(new_loss_components_mean[1], self.rgb_grad_loss_weight[0])
-        loss_tensor = loss_tensor + new_loss_components_mean_weighted.sum()
+        # loss_tensor = loss_tensor + new_loss_components_mean_weighted.sum()
+        loss_tensor = loss_tensor + new_loss_components_mean.sum()
         
         if math.isclose(loss_tensor.item(), 0.0):
             print('loss is close to zero')
@@ -260,10 +285,10 @@ class IpesRgbd(IpesBase):
     def validation_step(self, batch, batch_idx):
         loss = super().validation_step(batch, batch_idx)
         
-        self.log('epoch/val/weights/rgb_loss_weight', self.rgb_loss_weight.item(),
-                 on_step=False, on_epoch=True, logger=True, batch_size=batch['pts_query_ms'].shape[0])
-        self.log('epoch/val/weights/rgb_fft_loss_weight', self.rgb_fft_loss_weight.item(),
-                 on_step=False, on_epoch=True, logger=True, batch_size=batch['pts_query_ms'].shape[0])
+        # self.log('epoch/val/weights/rgb_loss_weight', self.rgb_loss_weight.item(),
+        #          on_step=False, on_epoch=True, logger=True, batch_size=batch['pts_query_ms'].shape[0])
+        # self.log('epoch/val/weights/rgb_fft_loss_weight', self.rgb_fft_loss_weight.item(),
+        #          on_step=False, on_epoch=True, logger=True, batch_size=batch['pts_query_ms'].shape[0])
         # self.log('epoch/val/weights/rgb_grad_loss_weight', self.rgb_grad_loss_weight.item(),
         #          on_step=False, on_epoch=True, logger=True, batch_size=batch['pts_query_ms'].shape[0])
         

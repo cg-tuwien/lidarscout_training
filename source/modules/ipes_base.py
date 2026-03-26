@@ -24,8 +24,8 @@ class IpesBase(BaseModule):
 
         self.predict_batch_size = predict_batch_size
         
-        self.hm_loss_weight = nn.Parameter(torch.zeros(1))
-        self.hm_fft_loss_weight = nn.Parameter(torch.zeros(1))
+        # self.hm_loss_weight = nn.Parameter(torch.zeros(1))
+        # self.hm_fft_loss_weight = nn.Parameter(torch.zeros(1))
         # self.hm_grad_loss_weight = nn.Parameter(torch.zeros(1))
 
     @abc.abstractmethod
@@ -58,8 +58,10 @@ class IpesBase(BaseModule):
         return gradient_loss
 
     @staticmethod
-    def compute_loss_hm_seam(loss_hm: torch.Tensor):
+    def compute_loss_hm_seam(pred: torch.Tensor, batch_data: dict, fall_off_factor=5.0):
 
+        loss_hm = IpesBase.compute_loss_hm(pred, batch_data)
+            
         # higher loss weights near border
         res = loss_hm.shape[2]  # assume square
         pixel_coords_x = torch.arange(res, device=loss_hm.device)
@@ -68,7 +70,6 @@ class IpesBase(BaseModule):
         center = (res - 1) / 2  # consider zero-based indexing
         distances = torch.abs(pixel_coords_x - center) + torch.abs(pixel_coords_y - center)  # L1 norm
         dist_norm = distances / res  # normalize to 0..1
-        fall_off_factor = 5.0
         dist_norm = torch.maximum(dist_norm * fall_off_factor, torch.zeros_like(dist_norm))
         sum_to_one_factor = dist_norm.numel() / torch.sum(dist_norm)
         dist_norm = dist_norm * sum_to_one_factor  # normalize so that the sum of weights is 1 per pixel
@@ -115,10 +116,10 @@ class IpesBase(BaseModule):
         loss_components = [
             IpesBase.compute_loss_hm(pred, batch_data),
             # IpesBase.compute_loss_gradient(pred, batch_data),
-            # self.compute_loss_hm_seam(hm_loss),
+            # self.compute_loss_hm_seam(pred, batch_data),
             # IpesBase.compute_loss_mean(pred, batch_data),
             # IpesBase.compute_loss_hm_gradient(pred, batch_data),
-            IpesBase.compute_loss_hm_fft(pred, batch_data),
+            # IpesBase.compute_loss_hm_fft(pred, batch_data),
         ]
         
         # density weighted loss
@@ -135,11 +136,12 @@ class IpesBase(BaseModule):
         loss_components_mean = torch.stack(loss_components_mean)
         
         # learned weighting for heights
-        loss_components_mean_weighted = torch.zeros_like(loss_components_mean)
-        loss_components_mean_weighted[0] = learned_loss_weighting(loss_components_mean[0], self.hm_loss_weight[0])
-        loss_components_mean_weighted[1] = learned_loss_weighting(loss_components_mean[1], self.hm_fft_loss_weight[0])
+        # loss_components_mean_weighted = torch.zeros_like(loss_components_mean)
+        # loss_components_mean_weighted[0] = learned_loss_weighting(loss_components_mean[0], self.hm_loss_weight[0])
+        # loss_components_mean_weighted[1] = learned_loss_weighting(loss_components_mean[1], self.hm_fft_loss_weight[0])
         # loss_components_mean_weighted[1] = learned_loss_weighting(loss_components_mean[1], self.hm_grad_loss_weight[0])
-        loss_tensor = loss_components_mean_weighted.sum()
+        # loss_tensor = loss_components_mean_weighted.sum()
+        loss_tensor = loss_components_mean.sum()
 
         if math.isclose(loss_tensor.item(), 0.0):
             print('loss is close to zero')
@@ -241,10 +243,10 @@ class IpesBase(BaseModule):
         self.log('epoch/val/gpu_mem_gb', memory_allocated() / 1024 / 1024 / 1024,
                  on_step=False, on_epoch=True, logger=True, batch_size=batch['pts_query_ms'].shape[0])
 
-        self.log('epoch/val/weights/hm_loss_weight', self.hm_loss_weight.item(),
-                 on_step=False, on_epoch=True, logger=True, batch_size=batch['pts_query_ms'].shape[0])
-        self.log('epoch/val/weights/hm_fft_loss_weight', self.hm_fft_loss_weight.item(),
-                 on_step=False, on_epoch=True, logger=True, batch_size=batch['pts_query_ms'].shape[0])
+        # self.log('epoch/val/weights/hm_loss_weight', self.hm_loss_weight.item(),
+        #          on_step=False, on_epoch=True, logger=True, batch_size=batch['pts_query_ms'].shape[0])
+        # self.log('epoch/val/weights/hm_fft_loss_weight', self.hm_fft_loss_weight.item(),
+        #          on_step=False, on_epoch=True, logger=True, batch_size=batch['pts_query_ms'].shape[0])
         # self.log('epoch/val/weights/hm_grad_loss_weight', self.hm_grad_loss_weight.item(),
         #          on_step=False, on_epoch=True, logger=True, batch_size=batch['pts_query_ms'].shape[0])
         
