@@ -24,13 +24,6 @@ class IpesImgDataModule(IpesDataModule):
         self.pts_to_img_methods = pts_to_img_methods
         self.rgb_to_img_methods = rgb_to_img_methods
 
-        # clear pts_to_img cache on start, first epoch will be slow
-        from source.dataloaders.base_data_module import get_dataset_dir
-        cache_dir = os.path.join(get_dataset_dir(self.in_file), 'img_cache')
-        if os.path.exists(cache_dir): # refresh cache on every startup
-            import shutil
-            shutil.rmtree(cache_dir)
-
     def make_dataset(
             self, in_file: typing.Union[str, list], reconstruction: bool, patches_per_shape: typing.Optional[int],
             do_data_augmentation: bool):

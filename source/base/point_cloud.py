@@ -125,11 +125,24 @@ def pts_to_img_cached(pts_ps_xy: np.ndarray, pts_data: np.ndarray, resolution: i
     # killing the process may leave empty cache files
     # if os.path.exists(cache_file) and os.path.getsize(cache_file) > 0 and method != 'rasterize':  # rasterize ist fast
     if os.path.exists(cache_file) and os.path.getsize(cache_file) > 0:
-        return np.load(cache_file)
+        try:
+            return np.load(cache_file)
+        except Exception:
+            # concurrent writer may have left a partial file, rebuild once
+            try:
+                os.remove(cache_file)
+            except OSError:
+                pass
 
     fs.make_dir_for_file(cache_file)
     img = pts_to_img(pts_ps_xy=pts_ps_xy, pts_data=pts_data, resolution=resolution, method=method)
-    np.save(cache_file, img)
+    tmp_file = f'{cache_file}.tmp.{os.getpid()}'
+    np.save(tmp_file, img)
+    if not tmp_file.endswith('.npy'):
+        tmp_file_npy = f'{tmp_file}.npy'
+    else:
+        tmp_file_npy = tmp_file
+    os.replace(tmp_file_npy, cache_file)
     return img
 
 

@@ -138,6 +138,8 @@ class Cli(LightningCLI):
         # fundamentals
         parser.add_argument('--debug', type=bool, default=False,
                             help='set to True if you want debug outputs to validate the model')
+        parser.add_argument('--refresh_cache', type=bool, default=False,
+                            help='set to True to rebuild img_cache before fit')
 
     @abc.abstractmethod
     def handle_rec_subcommand(self, args: typing.List[str]) -> typing.List[str]:
@@ -201,3 +203,31 @@ class Cli(LightningCLI):
             'predict': {'model', 'dataloaders', 'datamodule'},
             # 'tune': {'model', 'train_dataloaders', 'val_dataloaders', 'datamodule'},
         }
+
+    def before_fit(self):
+        datamodule = self.datamodule
+        required_attrs = [
+            'pts_to_img_methods', 'rgb_to_img_methods',
+            'train_set', 'val_set', 'in_file',
+            'hm_interp_size', 'hm_size', 'context_radius_factor',
+            'meters_per_pixel', 'dataset_step',
+        ]
+        if not all(hasattr(datamodule, attr) for attr in required_attrs):
+            raise ValueError(f'Missing required datamodule attributes for img_cache precompute, expected {required_attrs} but got {datamodule.__dict__.keys()}')
+
+        from source.dataloaders.img_cache_precompute import precompute_img_cache_for_fit
+
+        refresh_cache = bool(getattr(self.cur_config(), 'refresh_cache', False))
+        precompute_img_cache_for_fit(
+            in_file=datamodule.in_file,
+            train_set=datamodule.train_set,
+            val_set=datamodule.val_set,
+            hm_interp_size=datamodule.hm_interp_size,
+            hm_size=datamodule.hm_size,
+            context_radius_factor=datamodule.context_radius_factor,
+            meters_per_pixel=datamodule.meters_per_pixel,
+            dataset_step=datamodule.dataset_step,
+            pts_to_img_methods=datamodule.pts_to_img_methods,
+            rgb_to_img_methods=datamodule.rgb_to_img_methods,
+            refresh_cache=refresh_cache,
+        )
