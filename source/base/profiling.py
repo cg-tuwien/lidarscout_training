@@ -43,9 +43,10 @@ def display_top(snapshot: typing.Union[tracemalloc.Snapshot, None], key_type='li
     print('Total allocated size: %.1f KiB' % (total / 1024))
 
 
-def get_duration(func, params: dict, repeat=1):
+def get_duration(func, params: dict, repeat=1, warmup=True):
     import time
-    res = func(**params)  # warmup, imports etc.
+    if warmup:  # warmup for imports and GPU etc.
+        res = func(**params) 
     start = time.time()
     for _ in range(repeat):
         res = func(**params)
@@ -83,10 +84,10 @@ def print_memory(min_num_bytes=0):
 def get_process_memory_bytes(pid=None, sum_children=True):
     import psutil
     process = psutil.Process(pid)
-    mem = process.memory_info().vms  # .rss
+    mem = process.memory_info().rss  #.vms
     if sum_children:
         for child in process.children(recursive=True):
-            mem += child.memory_info().vms  # .rss
+            mem += child.memory_info().rss  #.vms
     return mem
 
 

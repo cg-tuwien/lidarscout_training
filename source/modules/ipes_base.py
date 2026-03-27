@@ -34,21 +34,20 @@ class IpesBase(BaseModule):
 
     @staticmethod
     def compute_loss_hm(pred, batch_data):
-        height_target = batch_data['hm_gt_ps'].clone()
+        height_target = batch_data['hm_gt_ps']
         unknown_mask = torch.isnan(height_target)
-        height_target[unknown_mask] = 0.0
-        height_loss = nn.functional.mse_loss(input=pred, target=height_target, reduction='none')
+        height_target_safe = torch.nan_to_num(height_target, nan=0.0)
+        height_loss = nn.functional.mse_loss(input=pred, target=height_target_safe, reduction='none')
         height_loss[unknown_mask] = 0.0  # ignore nan (unknown GT)
         height_loss = torch.clip(height_loss, min=0.0, max=1.0)
         return height_loss
     
     @staticmethod
     def compute_loss_gradient(pred, batch_data):
-        height_target = batch_data['hm_gt_ps'].clone()
+        height_target = batch_data['hm_gt_ps']
         unknown_mask = torch.isnan(height_target)
 
-        gradient_target = batch_data['hm_gt_ps'].clone()
-        gradient_target[unknown_mask] = pred[unknown_mask]
+        gradient_target = torch.where(unknown_mask, pred, height_target)
         gradient_target = torch.gradient(gradient_target, dim=(2, 3))
         gradient_target = torch.sum(torch.stack(gradient_target), dim=0)
         gradient_pred = torch.gradient(pred, dim=(2, 3))
@@ -98,7 +97,7 @@ class IpesBase(BaseModule):
     @staticmethod
     def compute_loss_hm_fft(pred, batch_data):
         from source.base.metrics import fft_amplitude_loss
-        height_loss = fft_amplitude_loss(pred, batch_data['hm_gt_ps'].clone())
+        height_loss = fft_amplitude_loss(pred, batch_data['hm_gt_ps'])
         return height_loss
 
     @staticmethod
@@ -231,7 +230,7 @@ class IpesBase(BaseModule):
 
     def validation_step(self, batch, batch_idx):
         from source.base.profiling import get_duration
-        duration, step_data = get_duration(self.common_step, {'batch': batch, 'step': 'val'})
+        duration, step_data = get_duration(self.common_step, {'batch': batch, 'step': 'val'}, warmup=False)
         self.log('epoch/val/duration_s', duration, on_step=False, on_epoch=True,
                  logger=True, batch_size=batch['pts_query_ms'].shape[0])
 
@@ -272,7 +271,8 @@ class IpesBase(BaseModule):
 
         results = {'pc_file_in': pc_file_in, 'loss': loss,
                    'loss_components_mean': loss_components_mean,
-                   'loss_components': loss_components, 'metrics_dict': metrics_dict}
+                #    'loss_components': loss_components, 
+                   'metrics_dict': metrics_dict}
         self.test_step_outputs.append(results)
 
         prog_bar = self.get_prog_bar()

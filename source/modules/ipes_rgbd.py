@@ -77,10 +77,10 @@ class IpesRgbd(IpesBase):
 
     @staticmethod
     def compute_loss_rgb(pred, batch_data):
-        rgb_target = batch_data['rgb_gt'].clone()
+        rgb_target = batch_data['rgb_gt']
         unknown_mask = torch.isnan(rgb_target)
-        rgb_target[unknown_mask] = 0.0
-        rgb_loss = nn.functional.mse_loss(input=pred, target=rgb_target, reduction='none')
+        rgb_target_safe = torch.nan_to_num(rgb_target, nan=0.0)
+        rgb_loss = nn.functional.mse_loss(input=pred, target=rgb_target_safe, reduction='none')
         rgb_loss[unknown_mask] = 0.0  # ignore nan (unknown GT)
         rgb_loss = torch.clip(rgb_loss, min=0.0, max=1.0)
         rgb_loss = rgb_loss.sum(1)  # sum over RGB channels
