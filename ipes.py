@@ -98,8 +98,13 @@ def cli_main():
 
 def fixed_cmd():
     # name = 'ipes_cnn'
-    name = 'ipes_cnn_rgb'
+    # name = 'ipes_cnn_rgb'
     # name = 'ipes_gan'
+    # name = 'ipes_gan_001' # best GAN so far!
+    name = 'ipes_gan_001_4lvls'
+    # name = 'ipes_gan_005_4lvls'
+    # name = 'ipes_gan_005_4lvls_rgbd'
+    # name = 'ipes_gan_001_4lvls_rgbd'
     # name = 'ipes_cnn_rgb_optim'
     # name = 'ipes_cnn_rgb_preprocess'
     # name = 'ipes_cnn_rgb_density_weighted'
@@ -125,7 +130,7 @@ def fixed_cmd():
 
     configs = [
         '-c', 'configs/ipes_cnn.yaml',
-        # '-c', 'configs/ipes_gan.yaml',
+        '-c', 'configs/ipes_gan.yaml',
         '-c', 'configs/ipes_cnn_rgb.yaml',
         # '-c', 'configs/ipes_cnn_rgb_grad.yaml',
         # '-c', 'configs/ipes_cnn_rgb_fft.yaml',

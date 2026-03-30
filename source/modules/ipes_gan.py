@@ -7,21 +7,32 @@ import pytorch_lightning as pl
 from overrides import override
 
 from source.modules.ipes_cnn import IpesCnn 
+import torch.nn as nn
 
 class PatchDiscriminator(nn.Module):
     def __init__(self, in_channels=3):
         super().__init__()
-        # A tiny 3-layer CNN that grades 64x64 patches.
-        # It outputs a grid of values (Real vs. Fake) rather than a single scalar.
+        # A deeper 4-layer CNN to increase the receptive field.
+        # Grades larger structural patterns in the 64x64 patches.
         self.model = nn.Sequential(
+            # Layer 1: 64x64 -> 32x32
             nn.Conv2d(in_channels, 64, kernel_size=4, stride=2, padding=1),
             nn.LeakyReLU(0.2, inplace=True),
             
+            # Layer 2: 32x32 -> 16x16
             nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1, bias=False),
             nn.BatchNorm2d(128),
             nn.LeakyReLU(0.2, inplace=True),
             
-            nn.Conv2d(128, 1, kernel_size=3, stride=1, padding=1)
+            # Layer 3: 16x16 -> 8x8
+            # This forces the Generator to draw coherent structures 
+            # rather than localized "sand" noise.
+            nn.Conv2d(128, 256, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.BatchNorm2d(256),
+            nn.LeakyReLU(0.2, inplace=True),
+            
+            # Layer 4 (Output): 8x8 grid of Real/Fake predictions
+            nn.Conv2d(256, 1, kernel_size=3, stride=1, padding=1)
         )
 
     def forward(self, img):
@@ -49,6 +60,7 @@ class IpesGan(IpesCnn):
             raise RuntimeError('IpesGan requires has_color_output=True for full GAN training.')
 
         # GAN-specific components
+        # self.discriminator = PatchDiscriminator(in_channels=4 if self.has_color_output else 1)
         self.discriminator = PatchDiscriminator(in_channels=3)
         self.gan_loss = nn.BCEWithLogitsLoss()
 
@@ -88,14 +100,25 @@ class IpesGan(IpesCnn):
         # Run the standard forward pass to get the baseline L2 anchor
         loss_l2, loss_components_mean, loss_components, metrics_dict, pred = self.common_step(
             batch=batch, step='train')
-
-        pred_rgb = pred[:, 1:4]
+        
+        # Extract Height and RGB
+        # gt_hm = batch['hm_gt_ps']
         gt_rgb = batch['rgb_gt']
 
-        # Create a valid mask to handle colorless SWISSS3D patches safely
-        valid_mask = ~torch.isnan(gt_rgb)
-        gt_safe = torch.nan_to_num(gt_rgb, nan=0.0)
-        pred_safe = pred_rgb * valid_mask.float()
+        # Inject the missing channel dimension [B, H, W] -> [B, 1, H, W]
+        # if gt_hm.ndim == 3:
+        #     gt_hm = gt_hm.unsqueeze(1)
+
+        # Concatenate into a 4-channel Ground Truth [B, 4, H, W]
+        # gt_all = torch.cat([gt_hm, gt_rgb], dim=1)
+        gt_all = gt_rgb  # if we let the GAN modify the heights, we get seams and noise
+
+        # Create a valid mask across all 4 channels
+        valid_mask = ~torch.isnan(gt_all)
+        gt_safe = torch.nan_to_num(gt_all, nan=0.0)
+        
+        # Mask the full 4-channel prediction
+        pred_safe = pred[:, 1:] * valid_mask.float()
 
         total_g_loss = loss_l2
 
@@ -105,7 +128,10 @@ class IpesGan(IpesCnn):
             g_gan_loss = self.gan_loss(fake_preds, torch.ones_like(fake_preds))
 
             # Combine the base L2 anchor with the GAN sharpness penalty
-            total_g_loss = loss_l2 + (0.1 * g_gan_loss)
+            # 0.1 was too strong and produced gravel artifacts
+            # 0.05 was too strong and turned grass into sand
+            # 0.01 was too weak and re-introduced blur
+            total_g_loss = loss_l2 + (0.01 * g_gan_loss)
             self.log('loss/train/g_gan_loss', g_gan_loss, prog_bar=True)
 
         # PyTorch Lightning manual backward API
