@@ -99,6 +99,9 @@ def cli_main():
 def fixed_cmd():
     # name = 'ipes_cnn'
     name = 'ipes_cnn_rgb'
+    # name = 'ipes_gan'
+    # name = 'ipes_cnn_rgb_optim'
+    # name = 'ipes_cnn_rgb_preprocess'
     # name = 'ipes_cnn_rgb_density_weighted'
     # name = 'ipes_cnn_rgb_density_weighted2'
     # name = 'ipes_cnn_rgb_fft'
@@ -122,6 +125,7 @@ def fixed_cmd():
 
     configs = [
         '-c', 'configs/ipes_cnn.yaml',
+        # '-c', 'configs/ipes_gan.yaml',
         '-c', 'configs/ipes_cnn_rgb.yaml',
         # '-c', 'configs/ipes_cnn_rgb_grad.yaml',
         # '-c', 'configs/ipes_cnn_rgb_fft.yaml',
@@ -143,6 +147,7 @@ def fixed_cmd():
                 '--trainer.default_root_dir', 'models/{}'.format(name),
                 # '--ckpt_path', 'models/{}/alpha/checkpoints/last.ckpt'.format(name),  # to continue training
                 # '--trainer.max_epochs', '151',
+                # '--data.init_args.workers', '5',
                 # '--data.init_args.workers', '0',
                 # '--trainer.max_epochs', '5',
                 # '--debug', 'True',

@@ -141,6 +141,25 @@ class Cli(LightningCLI):
         parser.add_argument('--refresh_cache', type=bool, default=False,
                             help='set to True to rebuild img_cache before fit')
 
+    @staticmethod
+    def configure_optimizers(lightning_module, optimizer, lr_scheduler=None):
+        # Preserve module-defined optimizer logic for manual-optimization GANs.
+        if getattr(lightning_module, 'automatic_optimization', True) is False and hasattr(lightning_module, 'discriminator'):
+            return lightning_module.__class__.configure_optimizers(lightning_module)
+
+        if lr_scheduler is None:
+            return optimizer
+
+        # ReduceLROnPlateau needs special treatment
+        from torch.optim.lr_scheduler import ReduceLROnPlateau
+        if isinstance(lr_scheduler, ReduceLROnPlateau):
+            monitor_name = getattr(lr_scheduler, 'monitor', None)
+            return {
+                'optimizer': optimizer,
+                'lr_scheduler': {'scheduler': lr_scheduler, 'monitor': monitor_name},
+            }
+        return [optimizer], [lr_scheduler]
+
     @abc.abstractmethod
     def handle_rec_subcommand(self, args: typing.List[str]) -> typing.List[str]:
         """
