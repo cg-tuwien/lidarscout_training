@@ -12,32 +12,21 @@ import torch.nn as nn
 class PatchDiscriminator(nn.Module):
     def __init__(self, in_channels=3):
         super().__init__()
-        # A deeper 4-layer CNN to increase the receptive field.
-        # Grades larger structural patterns in the 64x64 patches.
+        # A tiny 3-layer CNN that grades 64x64 patches.
+        # It outputs a grid of values (Real vs. Fake) rather than a single scalar.
         self.model = nn.Sequential(
-            # Layer 1: 64x64 -> 32x32
             nn.Conv2d(in_channels, 64, kernel_size=4, stride=2, padding=1),
             nn.LeakyReLU(0.2, inplace=True),
             
-            # Layer 2: 32x32 -> 16x16
             nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1, bias=False),
             nn.BatchNorm2d(128),
             nn.LeakyReLU(0.2, inplace=True),
             
-            # Layer 3: 16x16 -> 8x8
-            # This forces the Generator to draw coherent structures 
-            # rather than localized "sand" noise.
-            nn.Conv2d(128, 256, kernel_size=4, stride=2, padding=1, bias=False),
-            nn.BatchNorm2d(256),
-            nn.LeakyReLU(0.2, inplace=True),
-            
-            # Layer 4 (Output): 8x8 grid of Real/Fake predictions
-            nn.Conv2d(256, 1, kernel_size=3, stride=1, padding=1)
+            nn.Conv2d(128, 1, kernel_size=3, stride=1, padding=1)
         )
 
     def forward(self, img):
         return self.model(img)
-
 
 class IpesGan(IpesCnn):
     def __init__(self,

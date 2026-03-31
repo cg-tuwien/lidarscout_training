@@ -401,26 +401,77 @@ class IpesDataset(BaseDataset):
 
         return shape_data
 
-    def augment_rotate(self, shape_data: dict) -> dict:
-        rotations = [0, 1, 2, 3]
-        rot90s = self.rng.choice(rotations)
+    def augment_rotate(self, shape_data: dict, keys_to_rotate_grid, keys_to_rotate_pts) -> dict:
+        keys_to_rotate_grid = self.aug_keys_if_available(keys_to_rotate_grid, shape_data.keys())
+        keys_to_rotate_pts = self.aug_keys_if_available(keys_to_rotate_pts, shape_data.keys())
 
-        def _rotate_arr(arr):
-            angle_rad = np.radians(90.0 * rot90s)
-            cos_angle = np.cos(angle_rad)
-            sin_angle = np.sin(angle_rad)
-            arr[:, 0] = cos_angle * arr[:, 0] - sin_angle * arr[:, 0]
-            arr[:, 1] = cos_angle * arr[:, 1] - sin_angle * arr[:, 1]
+        if len(keys_to_rotate_grid) + len(keys_to_rotate_pts) == 0:
+            return shape_data
+
+        batch_key = (keys_to_rotate_grid + keys_to_rotate_pts)[0]
+        batch_data = shape_data[batch_key]
+        batch_size = len(batch_data) if isinstance(batch_data, list) else batch_data.shape[0]
+
+        rotations = [0, 1, 2, 3]
+        rot90s = self.rng.choice(rotations, size=batch_size)
+
+        def _rotate_pts_array(arr: np.ndarray, k: int) -> np.ndarray:
+            if k == 0:
+                return arr
+            x = arr[..., 0].copy()
+            y = arr[..., 1].copy()
+            if k == 1:
+                arr[..., 0] = -y
+                arr[..., 1] = x
+            elif k == 2:
+                arr[..., 0] = -x
+                arr[..., 1] = -y
+            else:
+                arr[..., 0] = y
+                arr[..., 1] = -x
             return arr
 
-        if rot90s > 0:
-            shape_data['pts_query_ms'] = _rotate_arr(shape_data['pts_query_ms'])
-            shape_data['pts_ms'] = _rotate_arr(shape_data['pts_ms'])
+        def _rotate_grid_batch(arr: np.ndarray) -> np.ndarray:
+            arr_rot = arr.copy()
+            for i, k in enumerate(rot90s):
+                if k != 0:
+                    # Rotate only spatial dims H/W for each item in batch.
+                    arr_rot[i] = np.rot90(arr_rot[i], k=int(k), axes=(-2, -1))
+            return arr_rot
 
-            if self.load_gt:
-                hm_gt_ms = shape_data['hm_gt_ms']
-                hm_gt_ms = np.rot90(hm_gt_ms, k=rot90s, axes=(1, 2)).copy()
-                shape_data['hm_gt_ms'] = hm_gt_ms
+        def _rotate_pts_batch(arr: np.ndarray) -> np.ndarray:
+            arr_rot = arr.copy()
+            if arr_rot.shape[0] != batch_size:
+                raise ValueError('Point batch has mismatched batch dimension for rotation.')
+            for i, k in enumerate(rot90s):
+                if k != 0:
+                    arr_rot[i] = _rotate_pts_array(arr_rot[i], int(k))
+            return arr_rot
+
+        def _rotate_pts_list(arr_list: typing.List[np.ndarray]) -> typing.List[np.ndarray]:
+            if len(arr_list) != batch_size:
+                raise ValueError('Point list has mismatched batch length for rotation.')
+            arr_list_rot = [arr.copy() for arr in arr_list]
+            for i, k in enumerate(rot90s):
+                if k != 0:
+                    arr_list_rot[i] = _rotate_pts_array(arr_list_rot[i], int(k))
+            return arr_list_rot
+
+        shape_data_new = dict()
+        for key in keys_to_rotate_grid + keys_to_rotate_pts:
+            shape_data_new[key] = shape_data[key].copy()
+
+        for key in keys_to_rotate_grid:
+            shape_data_new[key] = _rotate_grid_batch(shape_data_new[key])
+
+        for key in keys_to_rotate_pts:
+            if isinstance(shape_data_new[key], list):
+                shape_data_new[key] = _rotate_pts_list(shape_data_new[key])
+            else:
+                shape_data_new[key] = _rotate_pts_batch(shape_data_new[key])
+
+        for key in shape_data_new.keys():
+            shape_data[key + ('_aug' if not key.endswith('_aug') else '')] = shape_data_new[key]
 
         return shape_data
 
@@ -461,6 +512,7 @@ class IpesDataset(BaseDataset):
 
         # shape_data = self.augment_rotate(shape_data)  # broken?
 
+        # distorts understanding of heights
         keys_to_scale_comp = ['pts_query_ms']
         keys_to_scale_comp_list = ['pts_local_ms', 'pts_local_ps']
         keys_to_scale_whole = ['hm_gt_ms', 'hm_gt_ps'] if self.load_gt else []
