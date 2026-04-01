@@ -87,7 +87,7 @@ class IpesImgDataset(IpesDataset):
     def augment_data(self, shape_data: dict) -> dict:
         # data augmentation random flip along any number of axes
         # keys_to_negate = ['pts_ms', 'pts_query_ms']
-        keys_to_negate = ['pts_query_ms']  # for batch size
+        keys_to_negate = ['pts_query_ms', 'sun_pos_xy']  # pts_query_ms only for batch size
         keys_to_negate_list = ['pts_local_ms', 'pts_local_ps']
         keys_to_flip = self.get_keys_to_augment('patch_hm_', shape_data) + \
                        self.get_keys_to_augment('patch_rgb_', shape_data)
@@ -100,7 +100,7 @@ class IpesImgDataset(IpesDataset):
                         self.get_keys_to_augment('patch_rgb_', shape_data)
         if self.load_gt:
             keys_to_rotate_grid += ['hm_gt_ms', 'hm_gt_ps', 'rgb_gt']
-        keys_to_rotate_pts = ['pts_local_ms', 'pts_local_ps']
+        keys_to_rotate_pts = ['pts_local_ms', 'pts_local_ps', 'sun_pos_xy']
         shape_data = self.augment_rotate(shape_data, keys_to_rotate_grid=keys_to_rotate_grid, keys_to_rotate_pts=keys_to_rotate_pts)
 
         # random scaling of z -> distorts understanding of heights

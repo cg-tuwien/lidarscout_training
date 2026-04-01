@@ -244,8 +244,12 @@ class IpesDataset(BaseDataset):
 
         chunk_pts_ms = shape_data['pts_ms']
         chunk_pts_rgb = shape_data['pts_rgb']
+        sun_pos_xy = shape_data['sun_pos_xy']
         pts_query_ms = shape_data['pts_query_ms']
         numerical_stability_factor = shape_data['numerical_stability_factor']
+
+        # Expand per-shape sun direction to one vector per query patch.
+        sun_pos_xy = np.broadcast_to(sun_pos_xy[np.newaxis], (pts_query_ms.shape[0], 2)).copy()
 
         # get random subsample
         # subsample_factor = 16
@@ -258,6 +262,7 @@ class IpesDataset(BaseDataset):
         # remove query points that find no local subsample
         useless_query_pts = np.array([np.isnan(pts).any() for pts in pts_local_ms])
         pts_query_ms = pts_query_ms[~useless_query_pts]
+        sun_pos_xy = sun_pos_xy[~useless_query_pts]
         pts_local_ms = [pts for pts, useless in zip(pts_local_ms, useless_query_pts) if not useless]
         pts_local_rgb = [pts for pts, useless in zip(pts_local_rgb, useless_query_pts) if not useless]
         pts_local_ms_z_mean = pts_local_ms_z_mean[~useless_query_pts]
@@ -270,6 +275,7 @@ class IpesDataset(BaseDataset):
             numerical_stability_z_factor=numerical_stability_factor)
 
         shape_data['pts_query_ms'] = pts_query_ms
+        shape_data['sun_pos_xy'] = sun_pos_xy
         shape_data['patch_radius_interp_ms'] = patch_radius_interp_ms
         shape_data['patch_radius_hm_ms'] = patch_radius_hm_ms
         shape_data['pts_local_ms'] = pts_local_ms
@@ -342,6 +348,7 @@ class IpesDataset(BaseDataset):
         chunk_pts_ms, chunk_pts_rgb = self._read_point_cloud(self.in_file, self.shape_names[shape_id])
         shape_data['pts_ms'] = chunk_pts_ms
         shape_data['pts_rgb'] = chunk_pts_rgb
+        shape_data['sun_pos_xy'] = np.array([0.0, -1.0], dtype=np.float32)
         shape_data['pc_file_in'] = self.shape_names[shape_id]
         shape_data['meters_per_pixel'] = self.meters_per_pixel
 
@@ -505,7 +512,7 @@ class IpesDataset(BaseDataset):
 
     @override
     def augment_data(self, shape_data: dict) -> dict:
-        keys_to_negate = ['pts_query_ms']
+        keys_to_negate = ['pts_query_ms', 'sun_pos_xy']
         keys_to_negate_list = ['pts_local_ms', 'pts_local_ps']
         keys_to_flip = ['hm_gt_ms', 'hm_gt_ps'] if self.load_gt else []
         shape_data = self.augment_flip(shape_data, keys_to_negate, keys_to_negate_list, keys_to_flip)

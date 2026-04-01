@@ -375,6 +375,7 @@ class IpesBase(BaseModule):
                 'pts_query_ms': batch['pts_query_ms'][chunk_ids],
                 'patch_radius_hm_ms': batch['patch_radius_hm_ms'],
                 'numerical_stability_factor': batch['numerical_stability_factor'],
+                'sun_pos_xy': batch['sun_pos_xy'][chunk_ids],
                 }
             for k in batch.keys():
                 if k.startswith('patch_hm_') or k.startswith('patch_rgb_'):

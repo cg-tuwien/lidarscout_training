@@ -126,7 +126,8 @@ class IpesCnnNetwork(pl.LightningModule):
         self.decoders = nn.ModuleList(self.decoders)
 
         # Residual
-        residual_in_channels = self.output_channels + self.input_channels * self.num_input_methods
+        residual_in_channels = self.output_channels + self.input_channels * self.num_input_methods + 1
+        # residual_in_channels = self.output_channels + self.input_channels * self.num_input_methods + 2  # for sun pos
         self.residual = nn.Sequential(
             nn.Conv2d(residual_in_channels, residual_in_channels, kernel_size=9, padding=4),
             nn.ReLU(inplace=True),
@@ -144,6 +145,7 @@ class IpesCnnNetwork(pl.LightningModule):
     def forward(self, batch):
         # network uses query points for batch dim -> need to flatten shape * query points dim
         hm_inputs = [batch['patch_hm_{}'.format(method)] for method in self.input_methods]
+        sun_pos_xy = batch['sun_pos_xy']
 
         # replace RGB NaN with noise, will get zero gradient
         for hm_input in hm_inputs:
@@ -192,6 +194,8 @@ class IpesCnnNetwork(pl.LightningModule):
             all_inputs = torch.cat(hm_inputs + rgb_inputs, dim=1)
         else:
             all_inputs = torch.cat(hm_inputs, dim=1)
+        # sun_dir_map = sun_pos_xy[:, :, None, None].expand(-1, -1, h, w)
+        # all_inputs = torch.cat((all_inputs, sun_dir_map), dim=1)
         pred = torch.cat((pred, all_inputs), dim=1)
         pred_res = self.residual(pred)
         h_offset = (h - self.hm_size) // 2
