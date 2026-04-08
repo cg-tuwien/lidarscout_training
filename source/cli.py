@@ -140,13 +140,57 @@ class Cli(LightningCLI):
                             help='set to True if you want debug outputs to validate the model')
         parser.add_argument('--refresh_cache', type=bool, default=False,
                             help='set to True to rebuild img_cache before fit')
-
+        
     @staticmethod
     def configure_optimizers(lightning_module, optimizer, lr_scheduler=None):
-        # Preserve module-defined optimizer logic for manual-optimization GANs.
+        import inspect
+        
+        # =================================================================
+        # GAN Multi-Optimizer Interception
+        # =================================================================
         if getattr(lightning_module, 'automatic_optimization', True) is False and hasattr(lightning_module, 'discriminator'):
-            return lightning_module.__class__.configure_optimizers(lightning_module)
+            
+            # 1. Clone the Optimizer Settings
+            OptClass = type(optimizer)
+            opt_defaults = optimizer.defaults.copy()
 
+            # Dynamically filter defaults to only include valid __init__ arguments
+            valid_kwargs = inspect.signature(OptClass.__init__).parameters.keys()
+            filtered_defaults = {k: v for k, v in opt_defaults.items() if k in valid_kwargs}
+
+            # Spawn two new optimizers using ONLY the valid config arguments
+            opt_g = OptClass(lightning_module.regressor.parameters(), **filtered_defaults)
+            opt_d = OptClass(lightning_module.discriminator.parameters(), **filtered_defaults)
+
+            if lr_scheduler is None:
+                return [opt_g, opt_d], []
+
+            # 2. Clone the Scheduler Settings
+            SchedulerClass = type(lr_scheduler)
+            
+            from torch.optim.lr_scheduler import MultiStepLR, StepLR
+            if isinstance(lr_scheduler, MultiStepLR):
+                # MultiStepLR internally converts milestones to a Counter object.
+                # .elements() unpacks the Counter back into the raw list defined in YAML.
+                milestones = list(lr_scheduler.milestones.elements())
+                gamma = lr_scheduler.gamma
+                
+                sch_g = SchedulerClass(opt_g, milestones=milestones, gamma=gamma)
+                sch_d = SchedulerClass(opt_d, milestones=milestones, gamma=gamma)
+                
+                return [opt_g, opt_d], [sch_g, sch_d]
+                
+            elif isinstance(lr_scheduler, StepLR):
+                sch_g = SchedulerClass(opt_g, step_size=lr_scheduler.step_size, gamma=lr_scheduler.gamma)
+                sch_d = SchedulerClass(opt_d, step_size=lr_scheduler.step_size, gamma=lr_scheduler.gamma)
+                
+                return [opt_g, opt_d], [sch_g, sch_d]
+            else:
+                raise NotImplementedError(f"Scheduler cloning for {SchedulerClass.__name__} is not implemented for GANs.")
+
+        # =================================================================
+        # Standard Single-Optimizer Logic (For non-GAN CNNs)
+        # =================================================================
         if lr_scheduler is None:
             return optimizer
 
@@ -158,6 +202,7 @@ class Cli(LightningCLI):
                 'optimizer': optimizer,
                 'lr_scheduler': {'scheduler': lr_scheduler, 'monitor': monitor_name},
             }
+            
         return [optimizer], [lr_scheduler]
 
     @abc.abstractmethod

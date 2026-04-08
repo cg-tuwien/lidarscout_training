@@ -12,21 +12,58 @@ import torch.nn as nn
 class PatchDiscriminator(nn.Module):
     def __init__(self, in_channels=3):
         super().__init__()
-        # A tiny 3-layer CNN that grades 64x64 patches.
-        # It outputs a grid of values (Real vs. Fake) rather than a single scalar.
-        self.model = nn.Sequential(
+        # harvest intermediate features
+        self.layer1 = nn.Sequential(
             nn.Conv2d(in_channels, 64, kernel_size=4, stride=2, padding=1),
-            nn.LeakyReLU(0.2, inplace=True),
-            
+            nn.LeakyReLU(0.2, inplace=True)
+        )
+        self.layer2 = nn.Sequential(
             nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1, bias=False),
             nn.BatchNorm2d(128),
-            nn.LeakyReLU(0.2, inplace=True),
-            
-            nn.Conv2d(128, 1, kernel_size=3, stride=1, padding=1)
+            nn.LeakyReLU(0.2, inplace=True)
         )
+        self.layer3 = nn.Conv2d(128, 1, kernel_size=3, stride=1, padding=1)
 
     def forward(self, img):
-        return self.model(img)
+        feat1 = self.layer1(img)
+        feat2 = self.layer2(feat1)
+        out = self.layer3(feat2)
+        
+        # Return both the final logits and the intermediate feature maps
+        return out, [feat1, feat2]
+
+class PatchDiscriminator_4lvls(nn.Module):
+    def __init__(self, in_channels=3):
+        super().__init__()
+        
+        # Layer 1: 64x64 -> 32x32
+        self.layer1 = nn.Sequential(
+            nn.Conv2d(in_channels, 64, kernel_size=4, stride=2, padding=1),
+            nn.LeakyReLU(0.2, inplace=True)
+        )
+        # Layer 2: 32x32 -> 16x16
+        self.layer2 = nn.Sequential(
+            nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(0.2, inplace=True)
+        )
+        # Layer 3: 16x16 -> 8x8 (The Macro-Structure Layer)
+        self.layer3 = nn.Sequential(
+            nn.Conv2d(128, 256, kernel_size=4, stride=2, padding=1, bias=False),
+            nn.BatchNorm2d(256),
+            nn.LeakyReLU(0.2, inplace=True)
+        )
+        # Layer 4: Final Output
+        self.layer4 = nn.Conv2d(256, 1, kernel_size=3, stride=1, padding=1)
+
+    def forward(self, img):
+        feat1 = self.layer1(img)
+        feat2 = self.layer2(feat1)
+        feat3 = self.layer3(feat2)
+        out = self.layer4(feat3)
+        
+        # Return final prediction AND the 3 intermediate feature maps
+        return out, [feat1, feat2, feat3]
 
 class IpesGan(IpesCnn):
     def __init__(self,
@@ -51,6 +88,7 @@ class IpesGan(IpesCnn):
         # GAN-specific components
         # self.discriminator = PatchDiscriminator(in_channels=4 if self.has_color_output else 1)
         self.discriminator = PatchDiscriminator(in_channels=3)
+        # self.discriminator = PatchDiscriminator_4lvls(in_channels=3)
         self.gan_loss = nn.BCEWithLogitsLoss()
 
         # MANDATORY for PyTorch Lightning GANs:
@@ -110,18 +148,31 @@ class IpesGan(IpesCnn):
         pred_safe = pred[:, 1:] * valid_mask.float()
 
         total_g_loss = loss_l2
-
+        
         if valid_mask.any():
-            # Adversarial Penalty: Generator wants Discriminator to output 1 (Real)
-            fake_preds = self.discriminator(pred_safe)
+            # 1. Get REAL features (no gradients needed for the Generator pass)
+            with torch.no_grad():
+                _, real_features = self.discriminator(gt_safe)
+
+            # 2. Get FAKE predictions and FAKE features
+            fake_preds, fake_features = self.discriminator(pred_safe)
+            
+            # Base Adversarial penalty
             g_gan_loss = self.gan_loss(fake_preds, torch.ones_like(fake_preds))
 
-            # Combine the base L2 anchor with the GAN sharpness penalty
-            # 0.1 was too strong and produced gravel artifacts
-            # 0.05 was too strong and turned grass into sand
-            # 0.01 was too weak and re-introduced blur
-            total_g_loss = loss_l2 + (0.01 * g_gan_loss)
+            # 3. FEATURE MATCHING LOSS
+            # Calculate L1 distance between intermediate layers
+            feat_loss = 0.0
+            for r_feat, f_feat in zip(real_features, fake_features):
+                feat_loss += nn.functional.l1_loss(f_feat, r_feat.detach())
+
+            # Combine the L2 anchor, the GAN penalty, and the Feature Matching penalty
+            # A weight of 0.1 to 1.0 is standard for Feature Matching
+            fm_weight = 0.5 
+            total_g_loss = loss_l2 + (0.01 * g_gan_loss) + (fm_weight * feat_loss)
+            
             self.log('loss/train/g_gan_loss', g_gan_loss, prog_bar=True)
+            self.log('loss/train/g_feat_loss', feat_loss, prog_bar=True)
 
         # PyTorch Lightning manual backward API
         opt_generator.zero_grad()
@@ -136,18 +187,16 @@ class IpesGan(IpesCnn):
         if valid_mask.any():
             self.toggle_optimizer(opt_discriminator)
 
-            # Train Discriminator to output 1 for the Real Ground Truth
-            real_preds = self.discriminator(gt_safe)
+            # UNPACK THE TUPLE: Extract real_preds, ignore the features (_)
+            real_preds, _ = self.discriminator(gt_safe)
             d_real_loss = self.gan_loss(real_preds, torch.ones_like(real_preds))
 
-            # Train Discriminator to output 0 for the Fake CNN prediction
-            # .detach() is CRITICAL here so we don't backprop into the generator!
-            fake_preds_d = self.discriminator(pred_safe.detach())
+            # UNPACK THE TUPLE: Extract fake_preds_d, ignore the features (_)
+            fake_preds_d, _ = self.discriminator(pred_safe.detach())
             d_fake_loss = self.gan_loss(fake_preds_d, torch.zeros_like(fake_preds_d))
 
             total_d_loss = (d_real_loss + d_fake_loss) / 2
 
-            # PyTorch Lightning manual backward API
             opt_discriminator.zero_grad()
             self.manual_backward(total_d_loss)
             opt_discriminator.step()

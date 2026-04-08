@@ -155,6 +155,7 @@ def fixed_cmd():
                 # '--data.init_args.workers', '5',
                 # '--data.init_args.workers', '0',
                 # '--trainer.max_epochs', '5',
+                # '--trainer.max_epochs', '150',
                 # '--debug', 'True',
                 # '--refresh_cache', 'True',  # force new images when you changed the dataset or rendering method
                 # '--print_config'

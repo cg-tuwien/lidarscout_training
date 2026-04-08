@@ -44,6 +44,13 @@ class IpesCnn(IpesRgbd):
             has_color_input=self.has_color_input,
             has_color_output=self.has_color_output,
         )
+        
+    def on_train_epoch_end(self):
+        # step GAN schedulers manually
+        schedulers = self.lr_schedulers()
+        if schedulers:
+            for sch in schedulers:
+                sch.step()
 
 
 class IpesCnnNetwork(pl.LightningModule):
