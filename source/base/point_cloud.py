@@ -72,7 +72,7 @@ def pts_to_img(
             'rast_nearest_min', 'rast_nearest_max', 'rast_nearest_mean',
             'rast_linear_min', 'rast_linear_max', 'rast_linear_mean',
             'rast_rbflinear_min', 'rast_rbflinear_max', 'rast_rbflinear_mean',
-            'nearest', 'linear', 'cubic', 'barymax',
+            'nearest', 'linear', 'cubic', 'barymax', 'mask',
             'hqsplat', 'knngauss'],
         border_pixels=16, context_radius_factor=1.5):
 
@@ -102,6 +102,10 @@ def pts_to_img(
     elif method == 'barymax':
         return interpolate_patch_barymax(
             pts_ps_xy=pts_ps_xy, pts_data=pts_data, resolution=resolution, method='barymax')
+    elif method == 'mask':
+        return rasterize_mask(
+            pts_ps_xy=pts_ps_xy, resolution=resolution,
+            context_radius_factor=context_radius_factor, border_pixels=border_pixels)
     elif method == 'knngauss':
         return knn_gauss(pts_ps_xy=pts_ps_xy, pts_data=pts_data, res=resolution)
     else:
@@ -113,7 +117,7 @@ def pts_to_img_cached(pts_ps_xy: np.ndarray, pts_data: np.ndarray, resolution: i
     from source.base import fs
 
     # if data is only NaNs, return directly
-    if np.isnan(pts_data).all():  # RGB is often NaN
+    if method != 'mask' and np.isnan(pts_data).all():  # RGB is often NaN
         if len(pts_data.shape) == 1:
             return np.full((resolution, resolution), np.nan)
         else:
@@ -144,6 +148,27 @@ def pts_to_img_cached(pts_ps_xy: np.ndarray, pts_data: np.ndarray, resolution: i
         tmp_file_npy = tmp_file
     os.replace(tmp_file_npy, cache_file)
     return img
+
+
+def rasterize_mask(
+        pts_ps_xy: np.ndarray, resolution: int,
+        context_radius_factor=1.5, border_pixels=16) -> np.ndarray:
+    from source.base.math import normalize_data
+    from source.base.img import slice_img_center
+
+    resolution_border = resolution + 2 * border_pixels
+    scaling_factor = resolution / resolution_border
+    pts_ps_xy_norm = normalize_data(arr=pts_ps_xy * context_radius_factor * np.sqrt(2) * scaling_factor,
+                                    in_min=-1.0, in_max=1.0,
+                                    out_min=0, out_max=resolution_border - 1, clip=True)
+
+    pts_coo = np.round(pts_ps_xy_norm).astype(int)
+    mask = np.zeros((resolution_border, resolution_border), dtype=np.float32)
+    if pts_coo.shape[0] > 0:
+        mask[pts_coo[:, 1], pts_coo[:, 0]] = 1.0
+
+    mask = slice_img_center(mask, resolution_border, resolution)
+    return mask
 
 
 def rast_pyramid(

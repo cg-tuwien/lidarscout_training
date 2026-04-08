@@ -152,6 +152,7 @@ class IpesCnnNetwork(pl.LightningModule):
     def forward(self, batch):
         # network uses query points for batch dim -> need to flatten shape * query points dim
         hm_inputs = [batch['patch_hm_{}'.format(method)] for method in self.input_methods]
+        rgb_inputs = []
         sun_pos_xy = batch['sun_pos_xy']
 
         # replace RGB NaN with noise, will get zero gradient
@@ -168,7 +169,10 @@ class IpesCnnNetwork(pl.LightningModule):
         b, _, h, w = hm_inputs[0].shape  # [b, r, r]
 
         # interpolated patches are normalized with a different resolution than the output patches
-        hm_inputs = [hm_input / self.hm_size * self.hm_interp_size for hm_input in hm_inputs]
+        hm_inputs = [
+            hm_input if method == 'mask' else hm_input / self.hm_size * self.hm_interp_size
+            for method, hm_input in zip(self.input_methods, hm_inputs)
+        ]
 
         # # debug with GT
         # hm_pts_flat = batch['hm_gt_ps'].view(hm_input.shape)

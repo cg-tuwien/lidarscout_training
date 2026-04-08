@@ -108,6 +108,7 @@ class IpesImgDataset(IpesDataset):
         keys_to_scale_comp = ['pts_query_ms']
         keys_to_scale_comp_list = ['pts_local_ms', 'pts_local_ps']
         keys_to_scale_whole = self.get_keys_to_augment('patch_hm_', shape_data)
+        keys_to_scale_whole = [k for k in keys_to_scale_whole if not k.endswith('_mask')]
         if self.load_gt:
             keys_to_scale_whole += ['hm_gt_ms', 'hm_gt_ps']
         shape_data = self.augment_z_scale(shape_data, keys_to_scale_comp, keys_to_scale_comp_list, keys_to_scale_whole)

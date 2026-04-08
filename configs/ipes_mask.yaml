@@ -1,0 +1,10 @@
+data:
+  init_args:
+    rgb_to_img_methods:
+    - 'nearest'
+    - 'linear'
+    - 'mask'
+    pts_to_img_methods:
+    - 'nearest'
+    - 'linear'
+    - 'mask'

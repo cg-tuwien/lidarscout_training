@@ -98,10 +98,21 @@ def cli_main():
 
 def fixed_cmd():
     # name = 'ipes_cnn'
-    # name = 'ipes_cnn_rgb'
+    name = 'ipes_cnn_rgb'
+    # name = 'ipes_cnn_rgb_randrot'
+    # name = 'ipes_cnn_rgb_randrot_sunpos'
     # name = 'ipes_gan'
     # name = 'ipes_gan_001' # best GAN so far!
-    name = 'ipes_gan_001_4lvls'
+    # name = 'ipes_gan_001_randrot'
+    # name = 'ipes_gan_001_randrot_sunpos'
+    # name = 'ipes_gan_001_randrot_sunpos_featmatch'
+    # name = 'ipes_gan_001_randrot_sunpos_featmatch_sched'
+    # name = 'ipes_gan_001_randrot_sunpos_featmatch_sched_mask'
+    # name = 'ipes_gan_001_4lvls_randrot_sunpos_featmatch_sched'
+    # name = 'ipes_gan_001_4lvls_randrot_sunpos_featmatch_sched_longer'
+    # name = 'ipes_gan_001_nozaug'
+    # name = 'ipes_gan_001_4lvls'  # good but distorted colors
+    # name = 'ipes_gan_001_4lvls_nozaug'
     # name = 'ipes_gan_005_4lvls'
     # name = 'ipes_gan_005_4lvls_rgbd'
     # name = 'ipes_gan_001_4lvls_rgbd'
@@ -142,6 +153,7 @@ def fixed_cmd():
         # '-c', 'configs/ipes_cnn_allstar.yaml',
         # '-c', 'configs/ipes_unet.yaml',
         # '-c', 'configs/ipes_rast.yaml',
+        # '-c', 'configs/ipes_mask.yaml',
         # '-c', 'configs/profiler.yaml'
     ]
 

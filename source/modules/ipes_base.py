@@ -310,12 +310,17 @@ class IpesBase(BaseModule):
 
         hm_key_for_reference = 'patch_hm_linear' if 'patch_hm_linear' in batch.keys() else None
         if hm_key_for_reference is None:
-            hm_keys = [k for k in batch.keys() if k.startswith('patch_hm_')]
+            hm_keys = [k for k in batch.keys() if k.startswith('patch_hm_') and not k.endswith('_mask')]
             if len(hm_keys) == 0:
                 raise ValueError('no interpolation method found')
             hm_key_for_reference = hm_keys[0]
 
         hm_lin_center = batch[hm_key_for_reference].shape[2] // 2
+        patch_hm_lin_center_ps = torch.zeros(
+            (batch[hm_key_for_reference].shape[0],),
+            device=batch[hm_key_for_reference].device,
+            dtype=batch[hm_key_for_reference].dtype,
+        )
         found_numeric_center = False
         center_area_size = 1
         while not found_numeric_center:
@@ -337,7 +342,7 @@ class IpesBase(BaseModule):
 
         batch['pts_query_ms'][..., 2] = patch_hm_lin_center_ms
         for k in batch.keys():
-            if k.startswith('patch_hm_'):
+            if k.startswith('patch_hm_') and not k.endswith('_mask'):
                 batch[k] = batch[k] - patch_hm_lin_center_ps[:, None, None, None]
 
         return batch
