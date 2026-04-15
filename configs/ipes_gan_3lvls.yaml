@@ -1,3 +1,0 @@
-model:
-  init_args:
-    discriminator_levels: 3

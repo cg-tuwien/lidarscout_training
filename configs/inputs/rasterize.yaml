@@ -1,15 +1,11 @@
 data:
   init_args:
     rgb_to_img_methods:
-    - 'nearest'
-    - 'linear'
+    - 'rasterize'
+    pts_to_img_methods:
+    - 'rasterize'
 
 model:
   init_args:
     has_color_input: True
     has_color_output: True
-    output_names:
-      - 'hm'
-      - 'hm_fft'
-      - 'rgb'
-      - 'rgb_fft'

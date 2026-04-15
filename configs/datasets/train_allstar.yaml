@@ -1,0 +1,3 @@
+data:
+  init_args:
+    in_file: datasets/laz_minimal/train_allstar.txt

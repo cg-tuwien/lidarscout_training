@@ -1,0 +1,10 @@
+model:
+  class_path: source.modules.ipes_cnn.IpesCnn
+  init_args:
+    name: 'ipes'
+    results_dir: 'results'
+    predict_batch_size: 100
+    network_latent_size: 128
+    hm_interp_size: 96
+    show_unused_params: False
+    debug: False

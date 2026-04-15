@@ -5,4 +5,3 @@ trainer:
       export_to_chrome: True
       emit_nvtx: False
       with_stack: True
-
