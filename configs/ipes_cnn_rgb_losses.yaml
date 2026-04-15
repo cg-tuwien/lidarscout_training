@@ -1,0 +1,46 @@
+model:
+  init_args:
+    use_valid_pixel_mask: True
+    loss_module:
+      class_path: source.modules.losses.LossMixer
+      init_args:
+        use_valid_pixel_mask: True
+        learned_weights: False
+        weights:
+        - 1.0
+        - 0.25
+        - 0.25
+        - 0.20
+        - 0.20
+        - 0.20
+        losses:
+        - class_path: source.modules.losses.LossComponent
+          init_args:
+            name: hm_mse
+            kind: mse
+            target: hm
+        - class_path: source.modules.losses.LossComponent
+          init_args:
+            name: hm_gradient
+            kind: gradient
+            target: hm
+        - class_path: source.modules.losses.LossComponent
+          init_args:
+            name: rgb_l1
+            kind: l1
+            target: rgb
+        - class_path: source.modules.losses.LossComponent
+          init_args:
+            name: rgb_lpips
+            kind: lpips
+            target: rgb
+        - class_path: source.modules.losses.LossComponent
+          init_args:
+            name: rgb_ssim
+            kind: ssim
+            target: rgb
+        - class_path: source.modules.losses.LossComponent
+          init_args:
+            name: rgb_fft
+            kind: fft
+            target: rgb

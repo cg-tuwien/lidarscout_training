@@ -1,5 +1,6 @@
 import os
 import abc
+import typing
 
 import numpy as np
 import torch
@@ -8,12 +9,15 @@ from torch import nn
 from source.base import fs
 from source.base.nn import BaseModule
 from source.base.visualization import save_hm_as_pts, save_img_batch, get_vis_params
+from source.modules.losses import instantiate_loss_spec
 
 
 class IpesBase(BaseModule):
 
     def __init__(self,
-                 predict_batch_size, debug, show_unused_params, name):
+                 predict_batch_size, debug, show_unused_params, name,
+                 loss_module=None, use_valid_pixel_mask: bool = False,
+                 valid_pixel_mask_key: str = 'patch_hm_mask'):
         super().__init__(debug, show_unused_params, name)
 
         # self.lr = 0.001  # for lr tuner, not sure if this is used afterward
@@ -22,14 +26,22 @@ class IpesBase(BaseModule):
         self.keys_to_log = frozenset({'hm_rmse_ms', 'hm_gradient_rmse'})
         self.regressor = self.make_regressor()
 
-        self.predict_batch_size = predict_batch_size
+        self.predict_batch_size: int = predict_batch_size
+        self.use_valid_pixel_mask = use_valid_pixel_mask
+        self.valid_pixel_mask_key = valid_pixel_mask_key
+        self.loss_module: typing.Any = instantiate_loss_spec(loss_module)
+        if self.loss_module is None:
+            raise RuntimeError(
+                'No loss module configured. Set model.init_args.loss_module in YAML using '
+                'source.modules.losses.LossComponent or source.modules.losses.LossMixer.'
+            )
         
         # self.hm_loss_weight = nn.Parameter(torch.zeros(1))
         # self.hm_fft_loss_weight = nn.Parameter(torch.zeros(1))
         # self.hm_grad_loss_weight = nn.Parameter(torch.zeros(1))
 
     @abc.abstractmethod
-    def make_regressor(self):
+    def make_regressor(self) -> typing.Any:
         pass
 
     @staticmethod
@@ -108,47 +120,29 @@ class IpesBase(BaseModule):
         return img
 
     def compute_loss(self, pred, batch_data):
-        import math
-        from source.base.metrics import learned_loss_weighting, density_weighted_loss
+        loss_result = self.loss_module(pred, batch_data, model=self)
+        if isinstance(loss_result, tuple):
+            if len(loss_result) == 3:
+                return loss_result
+            raise ValueError('Configured loss module returned an unexpected tuple shape')
 
-        # keep same order as in yaml
-        loss_components = [
-            IpesBase.compute_loss_hm(pred, batch_data),
-            # IpesBase.compute_loss_gradient(pred, batch_data),
-            # self.compute_loss_hm_seam(pred, batch_data),
-            # IpesBase.compute_loss_mean(pred, batch_data),
-            # IpesBase.compute_loss_hm_gradient(pred, batch_data),
-            # IpesBase.compute_loss_hm_fft(pred, batch_data),
-        ]
-        
-        # density weighted loss
-        hm_target = batch_data['hm_gt_ps']
-        valid_mask = ~torch.isnan(hm_target[:, 0]) if hm_target.ndim == 4 else ~torch.isnan(hm_target)
-        # hm_lin_center = self.slice_center(batch_data['patch_hm_linear'][:, 0], res_out=pred.shape[2])
-        # hm_nn_center = self.slice_center(batch_data['patch_hm_nearest'][:, 0], res_out=pred.shape[2])
-        # loss_components[0] = density_weighted_loss(loss_components[0], hm_lin_center, hm_nn_center, alpha=5.0)
-        
-        loss_components = torch.stack(loss_components)
-        
-        valid_count = valid_mask.sum() + 1e-8
-        loss_components_mean = [torch.sum(loss) / valid_count for loss in loss_components]
-        loss_components_mean = torch.stack(loss_components_mean)
-        
-        # learned weighting for heights
-        # loss_components_mean_weighted = torch.zeros_like(loss_components_mean)
-        # loss_components_mean_weighted[0] = learned_loss_weighting(loss_components_mean[0], self.hm_loss_weight[0])
-        # loss_components_mean_weighted[1] = learned_loss_weighting(loss_components_mean[1], self.hm_fft_loss_weight[0])
-        # loss_components_mean_weighted[1] = learned_loss_weighting(loss_components_mean[1], self.hm_grad_loss_weight[0])
-        # loss_tensor = loss_components_mean_weighted.sum()
-        loss_tensor = loss_components_mean.sum()
+        loss_map = loss_result
+        target = batch_data['hm_gt_ps']
+        if self.use_valid_pixel_mask and self.valid_pixel_mask_key in batch_data:
+            valid_mask = batch_data[self.valid_pixel_mask_key]
+            if valid_mask.ndim == 4:
+                valid_mask = valid_mask[:, 0]
+            valid_mask = valid_mask > 0.5
+        else:
+            valid_mask = ~torch.isnan(target[:, 0]) if target.ndim == 4 else ~torch.isnan(target)
 
-        if math.isclose(loss_tensor.item(), 0.0):
-            print('loss is close to zero')
+        if loss_map.ndim == 4 and valid_mask.ndim == 3:
+            valid_mask = valid_mask.unsqueeze(1)
 
-        if math.isnan(loss_tensor.item()):
-            print('loss is nan')
-
-        return loss_tensor, loss_components_mean, loss_components
+        valid_mask = valid_mask.float()
+        valid_count = valid_mask.sum().clamp_min(1e-8)
+        loss_mean = (loss_map * valid_mask).sum() / valid_count
+        return loss_mean, torch.stack([loss_mean]), torch.stack([loss_map])
 
     def calc_metrics(self, pred, batch):
         pred = pred.detach()
@@ -292,7 +286,7 @@ class IpesBase(BaseModule):
         metrics_dicts_stacked = aggregate_dicts(outputs_flat, method='stack')
 
         output_file = os.path.join(results_dir, 'metrics_{}.xlsx'.format(self.name))
-        metrics_keys_to_log = ['hm_rmse_ps', 'hm_rmse_ms']
+        metrics_keys_to_log = ['hm_rmse_ms', 'hm_gradient_rmse']
         loss_total_mean, metrics = make_test_report(
             shape_names=shape_names, results=metrics_dicts_stacked,
             output_file=output_file, output_names=self.output_names, is_dict=True,

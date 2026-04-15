@@ -11,3 +11,19 @@ model:
     output_names:
       - 'hm'
       - 'rgb'
+    loss_module:
+      class_path: source.modules.losses.LossMixer
+      init_args:
+        losses:
+          - class_path: source.modules.losses.LossComponent
+            init_args:
+              name: 'hm'
+              kind: 'mse'
+              target: 'hm'
+          - class_path: source.modules.losses.LossComponent
+            init_args:
+              name: 'rgb'
+              kind: 'mse'
+              target: 'rgb'
+        learned_weights: False
+        weights: [1.0, 1.0]

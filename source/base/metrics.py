@@ -104,6 +104,35 @@ def lpips(prediction: 'torch.Tensor', target: 'torch.Tensor',
     loss, total = _lpips_update(prediction, target, lpips.__dict__[model_member_str].net, normalize=True)
     return loss
 
+
+def ssim(prediction: 'torch.Tensor', target: 'torch.Tensor') -> 'torch.Tensor':
+    """Return per-image SSIM scores for image tensors in BCHW format."""
+    from torchmetrics.functional.image.ssim import structural_similarity_index_measure
+
+    prediction = prediction.clamp(0, 1)
+    target = target.clamp(0, 1)
+    return structural_similarity_index_measure(prediction, target, data_range=1.0, reduction='none')
+
+
+def flip(prediction: 'torch.Tensor', target: 'torch.Tensor') -> 'torch.Tensor':
+    """Return per-image FLIP scores for image tensors in BCHW format."""
+    import numpy as np
+    import torch
+    from flip_evaluator import evaluate
+
+    prediction = prediction.clamp(0, 1).detach()
+    target = target.clamp(0, 1).detach()
+
+    prediction_np = prediction.permute(0, 2, 3, 1).cpu().numpy().astype(np.float32)
+    target_np = target.permute(0, 2, 3, 1).cpu().numpy().astype(np.float32)
+
+    scores = []
+    for reference, test in zip(target_np, prediction_np):
+        _, mean_error, _ = evaluate(reference, test, 'LDR', inputsRGB=True, applyMagma=False, computeMeanError=True)
+        scores.append(mean_error)
+
+    return torch.as_tensor(scores, device=prediction.device, dtype=prediction.dtype)
+
 def learned_loss_weighting(loss: 'torch.Tensor', weight: 'torch.Tensor') -> 'torch.Tensor':
     """Learnable multi-task loss weighting from https://openaccess.thecvf.com/content_cvpr_2018/papers/Kendall_Multi-Task_Learning_Using_CVPR_2018_paper.pdf
     both tensor are of shape [], scalars

@@ -74,22 +74,33 @@ class IpesGan(IpesCnn):
                  in_file, results_dir, network_latent_size, workers,
                  has_color_input: bool,
                  has_color_output: bool,
-                 predict_batch_size, debug, show_unused_params, name):
+                 predict_batch_size, debug, show_unused_params, name,
+                 loss_module=None, use_valid_pixel_mask: bool = False,
+                 valid_pixel_mask_key: str = 'patch_hm_mask', use_sun_direction: bool = True,
+                 discriminator_levels: int = 3, gan_loss_weight: float = 0.01,
+                 feature_matching_weight: float = 0.5):
 
         # 1. Initialize the parent CNN class
         super().__init__(hm_interp_size, pts_to_img_methods, output_names, hm_size,
                          in_file, results_dir, network_latent_size, workers,
                          has_color_input, has_color_output,
-                         predict_batch_size, debug, show_unused_params, name)
+                         predict_batch_size, debug, show_unused_params, name,
+                         loss_module=loss_module, use_valid_pixel_mask=use_valid_pixel_mask,
+                         valid_pixel_mask_key=valid_pixel_mask_key, use_sun_direction=use_sun_direction)
         
         if not self.has_color_output:
             raise RuntimeError('IpesGan requires has_color_output=True for full GAN training.')
 
         # GAN-specific components
-        # self.discriminator = PatchDiscriminator(in_channels=4 if self.has_color_output else 1)
-        self.discriminator = PatchDiscriminator(in_channels=3)
-        # self.discriminator = PatchDiscriminator_4lvls(in_channels=3)
+        if discriminator_levels == 3:
+            self.discriminator = PatchDiscriminator(in_channels=3)
+        elif discriminator_levels == 4:
+            self.discriminator = PatchDiscriminator_4lvls(in_channels=3)
+        else:
+            raise ValueError(f'Unsupported discriminator_levels={discriminator_levels}')
         self.gan_loss = nn.BCEWithLogitsLoss()
+        self.gan_loss_weight = gan_loss_weight
+        self.feature_matching_weight = feature_matching_weight
 
         # MANDATORY for PyTorch Lightning GANs:
         # We must manually control opt.step() and opt.zero_grad().
@@ -98,6 +109,15 @@ class IpesGan(IpesCnn):
         # LightningCLI may inject a single-optimizer configure_optimizers; rebind
         # this instance to the GAN implementation so training always uses G and D.
         self.configure_optimizers = types.MethodType(IpesGan.configure_optimizers, self)
+
+        if self.loss_module is not None:
+            component_names = getattr(self.loss_module, 'component_names', None)
+            if component_names is not None:
+                self.output_names = list(component_names)
+            else:
+                loss_name = getattr(self.loss_module, 'name', None)
+                if loss_name is not None:
+                    self.output_names = [loss_name]
 
     @override
     def configure_optimizers(self):
@@ -168,8 +188,7 @@ class IpesGan(IpesCnn):
 
             # Combine the L2 anchor, the GAN penalty, and the Feature Matching penalty
             # A weight of 0.1 to 1.0 is standard for Feature Matching
-            fm_weight = 0.5 
-            total_g_loss = loss_l2 + (0.01 * g_gan_loss) + (fm_weight * feat_loss)
+            total_g_loss = loss_l2 + (self.gan_loss_weight * g_gan_loss) + (self.feature_matching_weight * feat_loss)
             
             self.log('loss/train/g_gan_loss', g_gan_loss, prog_bar=True)
             self.log('loss/train/g_feat_loss', feat_loss, prog_bar=True)

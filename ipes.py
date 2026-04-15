@@ -127,6 +127,9 @@ def fixed_cmd():
     # name = 'ipes_cnn_rgb_gradient'
     # name = 'ipes_cnn_rgb_gradient_learned_loss_weighting'
     # name = 'ipes_cnn_rgb_gradient_learned_loss_weighting2'
+    # name = 'ipes_cnn_mask'
+    # name = 'ipes_cnn_rgb_sunpos'
+    # name = 'ipes_cnn_rgb_losses'
     # name = 'ipes_cnn_rgb_huber_l1'
     # name = 'ipes_cnn_rgb_huber_l2'
     # name = 'ipes_cnn_rgb_gemini_2'
@@ -143,6 +146,12 @@ def fixed_cmd():
         '-c', 'configs/ipes_cnn.yaml',
         # '-c', 'configs/ipes_gan.yaml',
         '-c', 'configs/ipes_cnn_rgb.yaml',
+        # '-c', 'configs/ipes_cnn_mask.yaml',
+        # '-c', 'configs/ipes_cnn_rgb_sunpos.yaml',
+        # '-c', 'configs/ipes_cnn_rgb_losses.yaml',
+        # '-c', 'configs/ipes_gan_scheduler.yaml',
+        # '-c', 'configs/ipes_gan_3lvls.yaml',
+        # '-c', 'configs/ipes_gan_4lvls.yaml',
         # '-c', 'configs/ipes_cnn_rgb_grad.yaml',
         # '-c', 'configs/ipes_cnn_rgb_fft.yaml',
         # '-c', 'configs/ipes_cnn_barymax.yaml',

@@ -18,21 +18,35 @@ class IpesCnn(IpesRgbd):
                  in_file, results_dir, network_latent_size, workers,
                  has_color_input: bool,
                  has_color_output: bool,
-                 predict_batch_size, debug, show_unused_params, name):
+                 predict_batch_size, debug, show_unused_params, name,
+                 loss_module=None, use_valid_pixel_mask: bool = False,
+                 valid_pixel_mask_key: str = 'patch_hm_mask', use_sun_direction: bool = True):
 
-        self.network_latent_size = network_latent_size
-        self.hm_size = hm_size
-        self.hm_interp_size = hm_interp_size
+        self.network_latent_size: int = network_latent_size
+        self.hm_size: int = hm_size
+        self.hm_interp_size: int = hm_interp_size
 
-        self.in_file = in_file
+        self.in_file: str = in_file
         self.input_methods = pts_to_img_methods
-        self.output_names = output_names
-        self.results_dir = results_dir
-        self.workers = workers
+        self.output_names = list(output_names)
+        self.results_dir: str = results_dir
+        self.workers: int = workers
+        self.use_sun_direction = use_sun_direction
 
         super().__init__(has_color_input=has_color_input, has_color_output=has_color_output,
                          predict_batch_size=predict_batch_size, 
-                         debug=debug, show_unused_params=show_unused_params, name=name)
+                         debug=debug, show_unused_params=show_unused_params, name=name,
+                         loss_module=loss_module, use_valid_pixel_mask=use_valid_pixel_mask,
+                         valid_pixel_mask_key=valid_pixel_mask_key)
+
+        if self.loss_module is not None:
+            component_names = getattr(self.loss_module, 'component_names', None)
+            if component_names is not None:
+                self.output_names = list(component_names)
+            else:
+                loss_name = getattr(self.loss_module, 'name', None)
+                if loss_name is not None:
+                    self.output_names = [loss_name]
 
     @override
     def make_regressor(self):
@@ -43,13 +57,19 @@ class IpesCnn(IpesRgbd):
             hm_size=self.hm_size,
             has_color_input=self.has_color_input,
             has_color_output=self.has_color_output,
+            use_sun_direction=self.use_sun_direction,
         )
         
     def on_train_epoch_end(self):
         # step GAN schedulers manually
         schedulers = self.lr_schedulers()
         if schedulers:
+            if not isinstance(schedulers, (list, tuple)):
+                schedulers = [schedulers]
             for sch in schedulers:
+                from torch.optim.lr_scheduler import ReduceLROnPlateau
+                if isinstance(sch, ReduceLROnPlateau):
+                    continue
                 sch.step()
 
 
@@ -57,7 +77,8 @@ class IpesCnnNetwork(pl.LightningModule):
 
     def __init__(self, 
                  input_methods: typing.Collection[str],
-                 latent_size, hm_interp_size, hm_size, has_color_input, has_color_output):
+                 latent_size, hm_interp_size, hm_size, has_color_input, has_color_output,
+                 use_sun_direction: bool = True):
         super(IpesCnnNetwork, self).__init__()
 
         self.input_methods = input_methods
@@ -66,6 +87,7 @@ class IpesCnnNetwork(pl.LightningModule):
         self.hm_size = hm_size
         self.has_color_input = has_color_input
         self.has_color_output = has_color_output
+        self.use_sun_direction = use_sun_direction
 
         self.input_channels = 4 if has_color_input else 1
         self.output_channels = 4 if has_color_output else 1
@@ -133,8 +155,10 @@ class IpesCnnNetwork(pl.LightningModule):
         self.decoders = nn.ModuleList(self.decoders)
 
         # Residual
-        residual_in_channels = self.output_channels + self.input_channels * self.num_input_methods + 1
-        # residual_in_channels = self.output_channels + self.input_channels * self.num_input_methods + 2  # for sun pos
+        # residual_in_channels = self.output_channels + self.input_channels * self.num_input_methods + 1
+        residual_in_channels = self.output_channels + self.input_channels * self.num_input_methods
+        if self.use_sun_direction:
+            residual_in_channels += 2  # for sun pos 2D vector
         self.residual = nn.Sequential(
             nn.Conv2d(residual_in_channels, residual_in_channels, kernel_size=9, padding=4),
             nn.ReLU(inplace=True),
@@ -205,8 +229,9 @@ class IpesCnnNetwork(pl.LightningModule):
             all_inputs = torch.cat(hm_inputs + rgb_inputs, dim=1)
         else:
             all_inputs = torch.cat(hm_inputs, dim=1)
-        # sun_dir_map = sun_pos_xy[:, :, None, None].expand(-1, -1, h, w)
-        # all_inputs = torch.cat((all_inputs, sun_dir_map), dim=1)
+        if self.use_sun_direction:
+            sun_dir_map = sun_pos_xy[:, :, None, None].expand(-1, -1, h, w)
+            all_inputs = torch.cat((all_inputs, sun_dir_map), dim=1)
         pred = torch.cat((pred, all_inputs), dim=1)
         pred_res = self.residual(pred)
         h_offset = (h - self.hm_size) // 2

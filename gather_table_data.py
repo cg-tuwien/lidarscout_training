@@ -23,11 +23,18 @@ runs = [
     # 'ipes_interp_cubic', 'ipes_interp_linear', 'ipes_interp_rast_hqsplat_mean',
         ]
 
+METRIC_SPECS = [
+    ('hm_rmse_ms_mean', 'hm_rmse_ms', False),
+    ('rgb_psnr_mean', 'rgb_psnr', True),
+    ('rgb_lpips_mean', 'rgb_lpips', False),
+    ('rgb_ssim_mean', 'rgb_ssim', True),
+    ('rgb_flip_mean', 'rgb_flip', False),
+    ('rgb_gradient_rmse_mean', 'rgb_gradient_rmse', False),
+]
+
 header = [
     'file',
-    'hm_rmse_ms',
-    'rgb_psnr',
-    'rgb_gradient_rmse',
+    *[metric_name for _, metric_name, _ in METRIC_SPECS],
 ]
 
 join_str = '\t '
@@ -84,7 +91,7 @@ def _add_label(img: np.ndarray, lines: typing.List[str], pad: int = 6) -> np.nda
     header_h = text_h + 2 * pad
     out_w = max(pil_img.width, max_line_w + 2 * pad)
 
-    out = Image.new('RGB', (out_w, pil_img.height + header_h), color=(255, 255, 255))
+    out = Image.new('RGB', (int(out_w), int(pil_img.height + header_h)), color=(255, 255, 255))
     out.paste(pil_img, (0, header_h))
 
     draw_out = ImageDraw.Draw(out)
@@ -113,7 +120,7 @@ def _metric_bg_color(value: typing.Optional[float], vmin: float, vmax: float, hi
     return red, green, blue
 
 
-def _load_monospace_font(size: int = 14) -> ImageFont.ImageFont:
+def _load_monospace_font(size: int = 14):
     font_candidates = [
         r'C:\Windows\Fonts\consola.ttf',
         r'C:\Windows\Fonts\consolab.ttf',
@@ -153,17 +160,11 @@ def _add_label_colored_metrics(
     pad: int = 2) -> np.ndarray:
     pil_img = Image.fromarray(img)
 
-    hm_val = means.get('hm_rmse_ms_mean')
-    psnr_val = means.get('rgb_psnr_mean')
-    grad_val = means.get('rgb_gradient_rmse_mean')
-
-    # Known ranges keep columns compact while preserving fixed-width alignment.
-    hm_width = max(len('9.9999'), len('None'))
-    psnr_width = max(len('40.0000'), len('None'))
-    grad_width = max(len('0.0000'), len('None'))
-    hm_text = _fmt_fixed(hm_val, width=hm_width, precision=4)
-    psnr_text = _fmt_fixed(psnr_val, width=psnr_width, precision=4)
-    grad_text = _fmt_fixed(grad_val, width=grad_width, precision=4)
+    metric_values = {metric_name: means.get(mean_name) for mean_name, metric_name, _ in METRIC_SPECS}
+    metric_texts = {
+        metric_name: _fmt_fixed(metric_values[metric_name], width=max(len('40.0000'), len('None')), precision=4)
+        for _, metric_name, _ in METRIC_SPECS
+    }
 
     selected_font = None
     selected_run_text = None
@@ -177,24 +178,20 @@ def _add_label_colored_metrics(
     for font_size in [14, 13, 12, 11, 10, 9, 8]:
         font = _load_monospace_font(size=font_size)
         draw_tmp = ImageDraw.Draw(Image.new('RGB', (1, 1), color=(255, 255, 255)))
-
-        metrics_left = 'hm_rmse_ms='
-        metrics_mid = '|rgb_psnr='
-        metrics_right = '|rgb_gradient_rmse='
         run_len = run_name_width
         while run_len >= 1:
             run_text = _ellipsize_left(run_name, run_len).rjust(run_len)
             run_bbox = draw_tmp.textbbox((0, 0), run_text, font=font)
             run_line_w = int(run_bbox[2] - run_bbox[0])
 
-            metric_segments: typing.List[typing.Tuple[str, typing.Optional[typing.Tuple[int, int, int]]]] = [
-                (metrics_left, None),
-                (hm_text, _metric_bg_color(hm_val, *metric_ranges['hm_rmse_ms_mean'], higher_is_better=False)),
-                (metrics_mid, None),
-                (psnr_text, _metric_bg_color(psnr_val, *metric_ranges['rgb_psnr_mean'], higher_is_better=True)),
-                (metrics_right, None),
-                (grad_text, _metric_bg_color(grad_val, *metric_ranges['rgb_gradient_rmse_mean'], higher_is_better=False)),
-            ]
+            metric_segments: typing.List[typing.Tuple[str, typing.Optional[typing.Tuple[int, int, int]]]] = []
+            for idx, (mean_name, metric_name, higher_is_better) in enumerate(METRIC_SPECS):
+                prefix = '|' if idx > 0 else ''
+                metric_segments.append((f'{prefix}{metric_name}=', None))
+                metric_segments.append((
+                    metric_texts[metric_name],
+                    _metric_bg_color(metric_values[metric_name], *metric_ranges[mean_name], higher_is_better=higher_is_better),
+                ))
 
             metric_seg_sizes = []
             for text, _ in metric_segments:
@@ -221,14 +218,14 @@ def _add_label_colored_metrics(
     if selected_font is None:
         selected_font = _load_monospace_font(size=8)
         selected_run_text = _ellipsize_left(run_name, max(1, run_name_width // 2))
-        selected_metric_segments = [
-            ('h=', None),
-            (hm_text, _metric_bg_color(hm_val, *metric_ranges['hm_rmse_ms_mean'], higher_is_better=False)),
-            ('|p=', None),
-            (psnr_text, _metric_bg_color(psnr_val, *metric_ranges['rgb_psnr_mean'], higher_is_better=True)),
-            ('|g=', None),
-            (grad_text, _metric_bg_color(grad_val, *metric_ranges['rgb_gradient_rmse_mean'], higher_is_better=False)),
-        ]
+        selected_metric_segments = []
+        for idx, (mean_name, metric_name, higher_is_better) in enumerate(METRIC_SPECS):
+            prefix = '|' if idx > 0 else ''
+            selected_metric_segments.append((f'{prefix}{metric_name}=', None))
+            selected_metric_segments.append((
+                metric_texts[metric_name],
+                _metric_bg_color(metric_values[metric_name], *metric_ranges[mean_name], higher_is_better=higher_is_better),
+            ))
         draw_tmp = ImageDraw.Draw(Image.new('RGB', (1, 1), color=(255, 255, 255)))
         run_bbox = draw_tmp.textbbox((0, 0), selected_run_text, font=selected_font)
         selected_run_line_w = int(run_bbox[2] - run_bbox[0])
@@ -238,6 +235,13 @@ def _add_label_colored_metrics(
             selected_metric_seg_sizes.append((bbox[2] - bbox[0], bbox[3] - bbox[1]))
         selected_metric_line_w = int(sum(w for w, _ in selected_metric_seg_sizes))
         selected_line_h = int(max([run_bbox[3] - run_bbox[1]] + [h for _, h in selected_metric_seg_sizes]))
+
+    assert selected_run_text is not None
+    assert selected_metric_segments is not None
+    assert selected_run_line_w is not None
+    assert selected_metric_seg_sizes is not None
+    assert selected_metric_line_w is not None
+    assert selected_line_h is not None
 
     line_h = selected_line_h
     header_h = 2 * line_h + 3 * pad
@@ -296,30 +300,41 @@ def _make_grid(images: typing.List[np.ndarray], pad: int = 10, bg_value: int = 2
 def _get_metric_means(excel_file: str) -> typing.Dict[str, typing.Optional[float]]:
     wb = pyx.load_workbook(excel_file)
     ws = wb.active
+    if ws is None:
+        wb.close()
+        return {mean_name: None for mean_name, _, _ in METRIC_SPECS}
 
-    has_color = ws['F1'].value is not None
-    if has_color:
-        ranges_to_get = ['E2:E31', 'G2:G31', 'H2:H31']
-        metric_names = ['hm_rmse_ms_mean', 'rgb_psnr_mean', 'rgb_gradient_rmse_mean']
-    else:
-        ranges_to_get = ['D2:D31']
-        metric_names = ['hm_rmse_ms_mean']
+    header_row = [cell.value for cell in ws[1]]
+    header_to_col = {name: idx + 1 for idx, name in enumerate(header_row) if name is not None}
+
+    average_row = None
+    for row_idx in range(2, ws.max_row + 1):
+        if ws.cell(row=row_idx, column=1).value == 'AVERAGE':
+            average_row = row_idx
+            break
+    if average_row is None:
+        average_row = ws.max_row + 1
 
     means: typing.Dict[str, typing.Optional[float]] = {}
-    for i, range_to_get in enumerate(ranges_to_get):
-        cells = [c for c in ws[range_to_get]]
-        cell_vals = [c[0].value for c in cells]
+    for mean_name, metric_name, _ in METRIC_SPECS:
+        col_id = header_to_col.get(metric_name)
+        if col_id is None:
+            means[mean_name] = None
+            continue
+
+        cell_vals_raw = [ws.cell(row=row_idx, column=col_id).value for row_idx in range(2, average_row)]
+        cell_vals = [float(v) for v in cell_vals_raw if isinstance(v, (int, float, np.floating))]
 
         # fix broken PSNR
-        if i == 1:
-            cell_vals = [v - 48.131 if v is not None and v > 30 else v for v in cell_vals]
+        if metric_name == 'rgb_psnr':
+            cell_vals = [v - 48.131 if v > 30 else v for v in cell_vals]
 
-        if all(v is None for v in cell_vals):
-            means[metric_names[i]] = None
+        if len(cell_vals) == 0:
+            means[mean_name] = None
             continue
 
         cell_vals_np = np.asarray(cell_vals, dtype=np.float64)
-        means[metric_names[i]] = float(np.mean(cell_vals_np))
+        means[mean_name] = float(np.mean(cell_vals_np))
 
     wb.close()
     return means
@@ -347,9 +362,9 @@ for dataset in datasets:
             continue
 
         vals_to_print = []
-        vals_to_print.append(value_format_str.format(means['hm_rmse_ms_mean']) if means['hm_rmse_ms_mean'] is not None else 'None')
-        vals_to_print.append(value_format_str.format(means['rgb_psnr_mean']) if 'rgb_psnr_mean' in means and means['rgb_psnr_mean'] is not None else 'None')
-        vals_to_print.append(value_format_str.format(means['rgb_gradient_rmse_mean']) if 'rgb_gradient_rmse_mean' in means and means['rgb_gradient_rmse_mean'] is not None else 'None')
+        for mean_name, _, _ in METRIC_SPECS:
+            value = means.get(mean_name)
+            vals_to_print.append(value_format_str.format(value) if value is not None else 'None')
 
         run_name = os.path.basename(excel_file).replace('metrics_', '').split('_test_')[0]
         metrics_by_run[run_name] = means
@@ -394,7 +409,7 @@ for dataset in datasets:
         if len(run_entries) > 0:
             metric_ranges = {}
             run_name_width = max(len(entry[0]) for entry in run_entries)
-            for metric_name in ['hm_rmse_ms_mean', 'rgb_psnr_mean', 'rgb_gradient_rmse_mean']:
+            for metric_name, _, _ in METRIC_SPECS:
                 vals = [entry[2].get(metric_name) for entry in run_entries]
                 vals = [v for v in vals if v is not None]
                 if len(vals) == 0:
