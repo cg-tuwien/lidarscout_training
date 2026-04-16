@@ -1,14 +1,15 @@
 data:
   init_args:
+    hm_interp_size: 96
+    hm_size: 64
+    meters_per_pixel: 10.0
     rgb_to_img_methods:
-    - 'nearest'
     - 'linear'
-    - 'mask'
     pts_to_img_methods:
     - 'nearest'
     - 'linear'
-    - 'mask'
 
 model:
   init_args:
-    use_valid_pixel_mask: True
+    has_color_input: False
+    has_color_output: False

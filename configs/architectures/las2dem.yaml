@@ -1,0 +1,8 @@
+model:
+  class_path: source.modules.ipes_las2dem.IpesLas2Dem
+  init_args:
+    name: 'ipes'
+    results_dir: 'results'
+    predict_batch_size: 100
+    show_unused_params: False
+    debug: False

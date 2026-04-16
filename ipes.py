@@ -143,27 +143,34 @@ def fixed_cmd():
     # name = 'ipes_rast'
 
     configs = [
-        '-c', 'configs/ipes_cnn.yaml',
-        # '-c', 'configs/ipes_gan.yaml',
-        '-c', 'configs/ipes_cnn_rgb.yaml',
-        # '-c', 'configs/ipes_cnn_mask.yaml',
-        # '-c', 'configs/ipes_cnn_rgb_sunpos.yaml',
-        # '-c', 'configs/ipes_cnn_rgb_losses.yaml',
-        # '-c', 'configs/ipes_gan_scheduler.yaml',
-        # '-c', 'configs/ipes_gan_3lvls.yaml',
-        # '-c', 'configs/ipes_gan_4lvls.yaml',
-        # '-c', 'configs/ipes_cnn_rgb_grad.yaml',
-        # '-c', 'configs/ipes_cnn_rgb_fft.yaml',
-        # '-c', 'configs/ipes_cnn_barymax.yaml',
-        # '-c', 'configs/ipes_cnn_colorizer.yaml',
-        # '-c', 'configs/ipes_cnn_only_nn.yaml',
-        # '-c', 'configs/ipes_cnn_only_lin.yaml',
-        # '-c', 'configs/ipes_dctnet.yaml',
-        # '-c', 'configs/ipes_cnn_allstar.yaml',
-        # '-c', 'configs/ipes_unet.yaml',
-        # '-c', 'configs/ipes_rast.yaml',
-        # '-c', 'configs/ipes_mask.yaml',
-        # '-c', 'configs/profiler.yaml'
+        # one file per topic
+        '-c', 'configs/architectures/cnn.yaml',
+        # '-c', 'configs/architectures/gan.yaml',
+        # '-c', 'configs/architectures/unet.yaml',
+        # '-c', 'configs/architectures/dctnet.yaml',
+        # '-c', 'configs/architectures/interp.yaml',
+        # '-c', 'configs/architectures/las2dem.yaml',
+
+        '-c', 'configs/losses/rgb_mse.yaml',
+        # '-c', 'configs/losses/hm_mse.yaml',
+        # '-c', 'configs/losses/rgb_advanced.yaml',
+
+        '-c', 'configs/training/default.yaml',
+        # '-c', 'configs/training/device_server_ddp.yaml',
+        # '-c', 'configs/training/profiler.yaml',
+
+        '-c', 'configs/augmentation/enabled.yaml',
+        # '-c', 'configs/augmentation/disabled.yaml',
+
+        '-c', 'configs/inputs/rgb_nearest_linear.yaml',
+        # '-c', 'configs/inputs/default.yaml',
+        # '-c', 'configs/inputs/mask.yaml',
+        # '-c', 'configs/inputs/rasterize.yaml',
+
+        '-c', 'configs/datasets/train.yaml',
+        # '-c', 'configs/datasets/train_allstar.yaml',
+        # '-c', 'configs/datasets/test_set.yaml',
+        # '-c', 'configs/datasets/pts_list_test.yaml'
     ]
 
     # train

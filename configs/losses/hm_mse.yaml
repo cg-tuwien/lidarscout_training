@@ -1,0 +1,15 @@
+model:
+  init_args:
+    output_names:
+      - 'hm_val'
+    loss_module:
+      class_path: source.modules.losses.LossMixer
+      init_args:
+        losses:
+          - class_path: source.modules.losses.LossComponent
+            init_args:
+              name: 'hm'
+              kind: 'mse'
+              target: 'hm'
+        learned_weights: False
+        weights: [1.0]

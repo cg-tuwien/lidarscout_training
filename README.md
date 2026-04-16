@@ -75,6 +75,31 @@ python gather_table_data.py
 At the end of the training, the model will be traced, creating a TorchScript model. This file is stored in `[repo_root]/models` as `.pt`. You can transfer this to the [LidarScout viewer](https://github.com/cg-tuwien/lidarscout). See the [`heightmap_interp` sub-project](https://github.com/cg-tuwien/lidarscout/tree/main/heightmap_interp) for the usage in LibTorch.
 
 
+### Parameters
+
+Many parameters of the training, reconstruction and evaluation are exposed to the command line. Configs are stored in YAML files in `[repo_root]/configs`. Use one file per category and pass them with multiple `-c` flags. You can also override individual parameters with `--key value` pairs. See the `fixed_cmd()` function in `ipes.py` for some examples.
+
+Recommended order:
+1. `architectures`
+2. `losses`
+3. `training`
+4. `augmentation`
+5. `inputs`
+6. `datasets`
+
+Example:
+
+```bash
+python ipes.py fit \
+  -c configs/architectures/cnn.yaml \
+  -c configs/losses/rgb_mse.yaml \
+  -c configs/training/default.yaml \
+  -c configs/augmentation/enabled.yaml \
+  -c configs/inputs/rgb_nearest_linear.yaml \
+  -c configs/datasets/train.yaml
+```
+
+
 ## Folder and File Structure
 
 ### Training Set
