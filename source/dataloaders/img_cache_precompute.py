@@ -5,6 +5,7 @@ import multiprocessing as mp
 
 import numpy as np
 from scipy.spatial import KDTree
+from tqdm import tqdm
 
 from source.base.normalization import model_space_to_patch_space_list
 from source.base.point_cloud import pts_to_img_cached
@@ -38,7 +39,18 @@ def _ensure_gt_cache_for_shape(dataset_dir: str, file_name: str, hm_size: int):
     rgb_map_files = [os.path.join(dataset_dir, 'bins', file_name, f'rgb_{i}.bin') for i in range(3)]
     rgb_map_file_cache = os.path.join(dataset_dir, 'cache_gt', file_name, 'rgb.npy')
 
-    if os.path.exists(query_pts_file_cache) and os.path.exists(hm_file_cache):
+    def _is_valid_npy(cache_file: str) -> bool:
+        if not os.path.isfile(cache_file):
+            return False
+        try:
+            np.load(cache_file, mmap_mode='r')
+            return True
+        except Exception:
+            return False
+
+    if _is_valid_npy(query_pts_file_cache) and _is_valid_npy(hm_file_cache) and (
+        not os.path.exists(rgb_map_file_cache) or _is_valid_npy(rgb_map_file_cache)
+    ):
         return
 
     dt = np.dtype(f'3f8, ({hm_size},{hm_size})f4')
@@ -107,7 +119,7 @@ def _task_worker(task: dict) -> typing.Tuple[str, int]:
     pts_local_ms = []
     pts_local_rgb = []
     pts_query_ms_valid = []
-    for i, ids in enumerate(patch_pts_ids_lists):
+    for i, ids in enumerate(tqdm(patch_pts_ids_lists, desc='Filtering points', leave=False)):
         if len(ids) > min_point_count:
             ids_np = np.asarray(ids)
             pts_local_ms.append(chunk_pts_ms[ids_np])
@@ -126,7 +138,7 @@ def _task_worker(task: dict) -> typing.Tuple[str, int]:
     )
 
     render_count = 0
-    for i, pts_ps in enumerate(pts_local_ps):
+    for i, pts_ps in enumerate(tqdm(pts_local_ps, desc='Rendering images', leave=False)):
         for method in pts_to_img_methods:
             _ = pts_to_img_cached(
                 pts_ps_xy=pts_ps[:, :2],
@@ -212,13 +224,9 @@ def precompute_img_cache_for_fit(
 
     try:
         with mp.get_context('spawn').Pool(processes=num_workers) as pool:
-            done = 0
             total_renders = 0
-            for file_name, render_count in pool.imap_unordered(_task_worker, tasks, chunksize=1):
-                done += 1
+            for file_name, render_count in tqdm(pool.imap_unordered(_task_worker, tasks, chunksize=1), total=len(tasks), desc='Precomputing img_cache'):
                 total_renders += render_count
-                if done % 10 == 0 or done == len(tasks):
-                    print(f'img_cache precompute: {done}/{len(tasks)} tasks, renders={total_renders}, last={file_name}')
     except KeyboardInterrupt:
         print('img_cache precompute interrupted by user.')
         raise

@@ -106,7 +106,17 @@ class IpesDataset(BaseDataset):
     def get_rgb_cache_file(dataset_dir: str, file_name: str):
         return os.path.join(dataset_dir, 'cache_gt', file_name, 'rgb.npy')
 
-    def create_cache(self, file_name: str, in_file: str):
+    @staticmethod
+    def _npy_cache_is_valid(cache_file: str) -> bool:
+        if not os.path.isfile(cache_file):
+            return False
+        try:
+            np.load(cache_file, mmap_mode='r')
+            return True
+        except Exception:
+            return False
+
+    def create_cache(self, file_name: str, in_file: str, force: bool = False):
         from source.base.fs import make_dir_for_file, call_necessary
         from source.dataloaders.base_data_module import in_file_is_dataset, get_dataset_dir
 
@@ -125,28 +135,35 @@ class IpesDataset(BaseDataset):
         if os.path.exists(rgb_map_files[0]):
             expected_inputs += rgb_map_files
             expected_outputs += [rgb_map_files_cache]
-        if call_necessary(expected_inputs, expected_outputs):
+        outputs_valid = all(self._npy_cache_is_valid(output_file) for output_file in expected_outputs)
+        if not force and outputs_valid and not call_necessary(expected_inputs, expected_outputs):
+            return
+
+        if not outputs_valid:
+            print('Recreating invalid cache for {}'.format(file_name))
+        else:
             print('Creating cache for {}'.format(file_name))
-            dt = np.dtype('3f8, ({},{})f4'.format(self.hm_size, self.hm_size))
-            hm_data = np.fromfile(file=hm_file, dtype=dt)
-            query_pts = hm_data['f0']
-            make_dir_for_file(query_pts_file_cache)
-            np.save(query_pts_file_cache, query_pts)
 
-            hm = hm_data['f1']
-            make_dir_for_file(hm_file_cache)
-            np.save(hm_file_cache, hm)
+        dt = np.dtype('3f8, ({},{})f4'.format(self.hm_size, self.hm_size))
+        hm_data = np.fromfile(file=hm_file, dtype=dt)
+        query_pts = hm_data['f0']
+        make_dir_for_file(query_pts_file_cache)
+        np.save(query_pts_file_cache, query_pts)
 
-            if os.path.exists(rgb_map_files[0]):
-                rgb_maps = []
-                for rgb_map_file, rgb_map_file_cache in zip(rgb_map_files, rgb_map_files_cache):
-                    rgb_map = np.fromfile(file=rgb_map_file, dtype=dt)
-                    rgb_map = rgb_map['f1']
-                    rgb_maps.append(rgb_map)
-                rgb_maps = np.stack(rgb_maps, axis=1)
-                rgb_maps /= 255.0
-                make_dir_for_file(rgb_map_files_cache)
-                np.save(rgb_map_files_cache, rgb_maps)
+        hm = hm_data['f1']
+        make_dir_for_file(hm_file_cache)
+        np.save(hm_file_cache, hm)
+
+        if os.path.exists(rgb_map_files[0]):
+            rgb_maps = []
+            for rgb_map_file, rgb_map_file_cache in zip(rgb_map_files, rgb_map_files_cache):
+                rgb_map = np.fromfile(file=rgb_map_file, dtype=dt)
+                rgb_map = rgb_map['f1']
+                rgb_maps.append(rgb_map)
+            rgb_maps = np.stack(rgb_maps, axis=1)
+            rgb_maps /= 255.0
+            make_dir_for_file(rgb_map_files_cache)
+            np.save(rgb_map_files_cache, rgb_maps)
 
     @override
     def get_shape_names(self, in_file: str):
@@ -172,6 +189,11 @@ class IpesDataset(BaseDataset):
         query_pts_cache_file = self.get_hm_query_pts_cache_file(dataset_dir, file_name)
         hm_cache_file = self.get_hm_cache_file(dataset_dir, file_name)
         rgb_cache_file = self.get_rgb_cache_file(dataset_dir, file_name)
+
+        if not self._npy_cache_is_valid(query_pts_cache_file) or not self._npy_cache_is_valid(hm_cache_file) or (
+            os.path.exists(rgb_cache_file) and not self._npy_cache_is_valid(rgb_cache_file)
+        ):
+            self.create_cache(file_name=file_name, in_file=in_file, force=True)
 
         def _memmap_to_array(memmap):
             return np.asarray(memmap[start_id:end_id]).copy()

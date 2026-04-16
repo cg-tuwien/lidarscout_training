@@ -101,7 +101,7 @@ def lpips(prediction: 'torch.Tensor', target: 'torch.Tensor',
     # resolve when issue is fixed: https://github.com/Lightning-AI/torchmetrics/issues/3052
     # lpips_result = lpips.__dict__[model_member_str](prediction, target)  # can't avoid reduction here
     from torchmetrics.functional.image.lpips import _lpips_update
-    loss, total = _lpips_update(prediction, target, lpips.__dict__[model_member_str].net, normalize=True)
+    loss = _lpips_update(prediction, target, lpips.__dict__[model_member_str].net, normalize=True)
     return loss
 
 

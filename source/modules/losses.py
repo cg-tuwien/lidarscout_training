@@ -33,7 +33,7 @@ def instantiate_loss_spec(spec) -> typing.Any:
 def _broadcast_mask(mask: torch.Tensor, loss_map: torch.Tensor) -> torch.Tensor:
     if mask.ndim == loss_map.ndim:
         return mask
-    if mask.ndim == loss_map.ndim + 1 and mask.shape[1] == 1:
+    if mask.ndim == loss_map.ndim + 1:
         return mask[:, 0]
     if mask.ndim == loss_map.ndim - 1:
         return mask.unsqueeze(1) if loss_map.ndim == 4 else mask
