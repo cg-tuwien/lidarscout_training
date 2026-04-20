@@ -20,7 +20,8 @@ class IpesCnn(IpesRgbd):
                  has_color_output: bool,
                  predict_batch_size, debug, show_unused_params, name,
                  loss_module=None, use_valid_pixel_mask: bool = False,
-                 valid_pixel_mask_key: str = 'patch_hm_mask', use_sun_direction: bool = True):
+                 valid_pixel_mask_key: str = 'patch_hm_mask', use_sun_direction: bool = True,
+                 train_metrics_every_n_steps: int = 1):
 
         self.network_latent_size: int = network_latent_size
         self.hm_size: int = hm_size
@@ -37,7 +38,8 @@ class IpesCnn(IpesRgbd):
                          predict_batch_size=predict_batch_size, 
                          debug=debug, show_unused_params=show_unused_params, name=name,
                          loss_module=loss_module, use_valid_pixel_mask=use_valid_pixel_mask,
-                         valid_pixel_mask_key=valid_pixel_mask_key)
+                         valid_pixel_mask_key=valid_pixel_mask_key,
+                         train_metrics_every_n_steps=train_metrics_every_n_steps)
 
         if self.loss_module is not None:
             component_names = getattr(self.loss_module, 'component_names', None)

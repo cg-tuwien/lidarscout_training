@@ -19,7 +19,8 @@ class IpesUNet(IpesRgbd):
                  in_file, results_dir, network_latent_size, workers,
                  has_color_input: bool,
                  has_color_output: bool,
-                 predict_batch_size, debug, show_unused_params, name):
+                 predict_batch_size, debug, show_unused_params, name,
+                 train_metrics_every_n_steps: int = 1):
 
         if not has_color_input or not has_color_output:
             raise ValueError('UNet requires color input and output')
@@ -38,7 +39,8 @@ class IpesUNet(IpesRgbd):
 
         super().__init__(has_color_input=has_color_input, has_color_output=has_color_output,
                          predict_batch_size=predict_batch_size,
-                         debug=debug, show_unused_params=show_unused_params, name=name)
+                         debug=debug, show_unused_params=show_unused_params, name=name,
+                         train_metrics_every_n_steps=train_metrics_every_n_steps)
 
     @override
     def make_regressor(self):

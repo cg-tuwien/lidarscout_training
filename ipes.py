@@ -45,10 +45,6 @@ class IpesCli(Cli):
         if len(args) <= 1 or args[1] != 'rec':
             return args
 
-        # no rec -> nothing to do
-        if len(args) <= 1 or args[1] != 'rec':
-            return args
-
         # check syntax
         if len(args) < 4 or args[0] != os.path.basename(__file__):
             raise ValueError(
@@ -74,7 +70,7 @@ class IpesCli(Cli):
             '--model.init_args.results_dir', out_dir,
             '--trainer.default_root_dir', 'models/ipes_cnn',
             '--trainer.logger', 'False',
-            '--trainer.devices', '1'
+            '--trainer.devices', '1',
             '--data.init_args.workers', '0',
             '--data.init_args.meters_per_pixel', '10',
         ]
@@ -97,6 +93,15 @@ def cli_main():
 
 
 def fixed_cmd():
+    import torch
+
+    # Keep script runnable on both GPU and CPU machines.
+    trainer_runtime_args = (
+        ['--trainer.accelerator', 'gpu', '--trainer.devices', '-1']
+        if torch.cuda.is_available()
+        else ['--trainer.accelerator', 'cpu', '--trainer.devices', '1']
+    )
+
     # name = 'ipes_cnn'
     name = 'ipes_cnn_rgb'
     # name = 'ipes_cnn_rgb_randrot'
@@ -159,18 +164,20 @@ def fixed_cmd():
         # '-c', 'configs/training/device_server_ddp.yaml',
         # '-c', 'configs/training/profiler.yaml',
 
-        '-c', 'configs/augmentation/enabled.yaml',
-        # '-c', 'configs/augmentation/disabled.yaml',
-
-        '-c', 'configs/inputs/rgb_nearest_linear.yaml',
-        # '-c', 'configs/inputs/default.yaml',
-        # '-c', 'configs/inputs/mask.yaml',
-        # '-c', 'configs/inputs/rasterize.yaml',
-
+        # keep dataset config before any partial data.init_args overrides,
+        # otherwise jsonargparse validates an incomplete `data` object.
         '-c', 'configs/datasets/train.yaml',
         # '-c', 'configs/datasets/train_allstar.yaml',
         # '-c', 'configs/datasets/test_set.yaml',
-        # '-c', 'configs/datasets/pts_list_test.yaml'
+        # '-c', 'configs/datasets/pts_list_test.yaml',
+
+        '-c', 'configs/augmentation/enabled.yaml',
+        # '-c', 'configs/augmentation/disabled.yaml',
+
+        '-c', 'configs/inputs/default.yaml',
+        '-c', 'configs/inputs/rgb_nearest_linear.yaml',
+        # '-c', 'configs/inputs/mask.yaml',
+        # '-c', 'configs/inputs/rasterize.yaml',
     ]
 
     # train
@@ -178,8 +185,10 @@ def fixed_cmd():
                 'fit',] + configs + [
                 '--model.init_args.name', name,
                 '--trainer.default_root_dir', 'models/{}'.format(name),
+                ] + trainer_runtime_args + [
                 # '--ckpt_path', 'models/{}/alpha/checkpoints/last.ckpt'.format(name),  # to continue training
                 # '--trainer.max_epochs', '151',
+                # '--data.init_args.workers', '10',
                 # '--data.init_args.workers', '5',
                 # '--data.init_args.workers', '0',
                 # '--trainer.max_epochs', '5',
@@ -205,6 +214,7 @@ def fixed_cmd():
                     '--model.init_args.name', name,
                     '--trainer.default_root_dir', 'models/{}'.format(name),
                     '--ckpt_path', 'models/{}/alpha/checkpoints/last.ckpt'.format(name),
+                    ] + trainer_runtime_args + [
                     # '--print_config'
                     ]
         print(' '.join(sys.argv))
@@ -221,6 +231,7 @@ def fixed_cmd():
                     '--ckpt_path', 'models/{}/alpha/checkpoints/last.ckpt'.format(name),
                     '--trainer.logger', 'False',
                     '--data.init_args.workers', '0',
+                    ] + trainer_runtime_args + [
                     # '--data.init_args.meters_per_pixel', '1',
                     # '--data.init_args.meters_per_pixel', '2.5',
                     # '--data.init_args.meters_per_pixel', '5',

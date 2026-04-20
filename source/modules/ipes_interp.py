@@ -17,11 +17,13 @@ class IpesInterp(IpesRgbd, UnlearnedModule):
                  has_color_input, has_color_output,
                  predict_batch_size, debug, show_unused_params, name,
                  gen_subsample_manifold, output_names, in_file, results_dir, num_pts_local, hm_size,
-                 pts_to_img_methods, rgb_to_img_methods):
+                 pts_to_img_methods, rgb_to_img_methods,
+                 train_metrics_every_n_steps: int = 1):
 
         super().__init__(
             has_color_input=has_color_input, has_color_output=has_color_output, predict_batch_size=predict_batch_size,
-            debug=debug, show_unused_params=show_unused_params, name=name)
+            debug=debug, show_unused_params=show_unused_params, name=name,
+            train_metrics_every_n_steps=train_metrics_every_n_steps)
 
         self.gen_subsample_manifold = gen_subsample_manifold
         self.output_names = output_names

@@ -28,7 +28,7 @@ class BaseModule(pl.LightningModule):
     def do_logging(self, loss_total, loss_components, log_type: str, output_names: list, metrics_dict: dict,
                    key_to_log_prog_bar: str,
                    keys_to_log=frozenset({'abs_dist_rms', 'accuracy', 'precision', 'recall', 'f1_score'}),
-                   show_in_prog_bar=True, on_step=True, on_epoch=False):
+                   show_in_prog_bar=True, on_step=True, on_epoch=False, log_metrics: bool = True):
 
         # import math
 
@@ -36,16 +36,18 @@ class BaseModule(pl.LightningModule):
         for li, l in enumerate(loss_components):
             self.log('loss/{}/{}'.format(log_type, output_names[li]), l, on_step=on_step, on_epoch=on_epoch)
 
-        for key in metrics_dict.keys():
-            if key in keys_to_log:
-                value = metrics_dict[key].item()
-                # if math.isnan(value):
-                #     value = 0.0
-                self.log('metrics/{}/{}'.format(log_type, key), value, on_step=on_step, on_epoch=on_epoch)
+        if log_metrics:
+            for key in metrics_dict.keys():
+                if key in keys_to_log:
+                    value = metrics_dict[key].item()
+                    # if math.isnan(value):
+                    #     value = 0.0
+                    self.log('metrics/{}/{}'.format(log_type, key), value, on_step=on_step, on_epoch=on_epoch)
 
-        # only command line
-        self.log('cmd/{}/{}'.format(log_type, key_to_log_prog_bar), metrics_dict[key_to_log_prog_bar],
-                 on_step=on_step, on_epoch=on_epoch, logger=False, prog_bar=show_in_prog_bar)
+            # only command line
+            if key_to_log_prog_bar in metrics_dict:
+                self.log('cmd/{}/{}'.format(log_type, key_to_log_prog_bar), metrics_dict[key_to_log_prog_bar],
+                         on_step=on_step, on_epoch=on_epoch, logger=False, prog_bar=show_in_prog_bar)
 
     def get_prog_bar(self):
         from pytorch_lightning.callbacks.progress.tqdm_progress import TQDMProgressBar

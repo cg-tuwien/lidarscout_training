@@ -16,14 +16,16 @@ class IpesRgbd(IpesBase):
                  has_color_output: bool,
                  predict_batch_size, debug, show_unused_params, name,
                  loss_module=None, use_valid_pixel_mask: bool = False,
-                 valid_pixel_mask_key: str = 'patch_hm_mask'):
+                 valid_pixel_mask_key: str = 'patch_hm_mask',
+                 train_metrics_every_n_steps: int = 1):
 
         self.has_color_input = has_color_input
         self.has_color_output = has_color_output
 
         super().__init__(predict_batch_size, debug, show_unused_params, name,
                  loss_module=loss_module, use_valid_pixel_mask=use_valid_pixel_mask,
-                 valid_pixel_mask_key=valid_pixel_mask_key)
+                 valid_pixel_mask_key=valid_pixel_mask_key,
+                 train_metrics_every_n_steps=train_metrics_every_n_steps)
         self.use_valid_pixel_mask = use_valid_pixel_mask
         self.valid_pixel_mask_key = valid_pixel_mask_key
         

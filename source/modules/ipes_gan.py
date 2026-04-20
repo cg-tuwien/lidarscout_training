@@ -78,7 +78,8 @@ class IpesGan(IpesCnn):
                  loss_module=None, use_valid_pixel_mask: bool = False,
                  valid_pixel_mask_key: str = 'patch_hm_mask', use_sun_direction: bool = True,
                  discriminator_levels: int = 3, gan_loss_weight: float = 0.01,
-                 feature_matching_weight: float = 0.5):
+                 feature_matching_weight: float = 0.5,
+                 train_metrics_every_n_steps: int = 1):
 
         # 1. Initialize the parent CNN class
         super().__init__(hm_interp_size, pts_to_img_methods, output_names, hm_size,
@@ -86,7 +87,8 @@ class IpesGan(IpesCnn):
                          has_color_input, has_color_output,
                          predict_batch_size, debug, show_unused_params, name,
                          loss_module=loss_module, use_valid_pixel_mask=use_valid_pixel_mask,
-                         valid_pixel_mask_key=valid_pixel_mask_key, use_sun_direction=use_sun_direction)
+                         valid_pixel_mask_key=valid_pixel_mask_key, use_sun_direction=use_sun_direction,
+                         train_metrics_every_n_steps=train_metrics_every_n_steps)
         
         if not self.has_color_output:
             raise RuntimeError('IpesGan requires has_color_output=True for full GAN training.')
@@ -146,7 +148,7 @@ class IpesGan(IpesCnn):
 
         # Run the standard forward pass to get the baseline L2 anchor
         loss_l2, loss_components_mean, loss_components, metrics_dict, pred = self.common_step(
-            batch=batch, step='train')
+            batch=batch, step='train', batch_idx=batch_idx)
         
         # Extract Height and RGB
         # gt_hm = batch['hm_gt_ps']
@@ -227,5 +229,6 @@ class IpesGan(IpesCnn):
         # Log the standard metrics (RMSE, PSNR, etc.) using the existing pipeline
         self.do_logging(total_g_loss, loss_components_mean, log_type='train',
                         output_names=self.output_names, metrics_dict=metrics_dict, show_in_prog_bar=True,
-                        keys_to_log=self.keys_to_log, key_to_log_prog_bar='hm_rmse_ms')
+                        keys_to_log=self.keys_to_log, key_to_log_prog_bar='hm_rmse_ms',
+                        log_metrics=bool(metrics_dict))
         return total_g_loss

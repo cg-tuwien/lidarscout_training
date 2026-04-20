@@ -17,7 +17,8 @@ class IpesBase(BaseModule):
     def __init__(self,
                  predict_batch_size, debug, show_unused_params, name,
                  loss_module=None, use_valid_pixel_mask: bool = False,
-                 valid_pixel_mask_key: str = 'patch_hm_mask'):
+                 valid_pixel_mask_key: str = 'patch_hm_mask',
+                 train_metrics_every_n_steps: int = 1):
         super().__init__(debug, show_unused_params, name)
 
         # self.lr = 0.001  # for lr tuner, not sure if this is used afterward
@@ -29,6 +30,7 @@ class IpesBase(BaseModule):
         self.predict_batch_size: int = predict_batch_size
         self.use_valid_pixel_mask = use_valid_pixel_mask
         self.valid_pixel_mask_key = valid_pixel_mask_key
+        self.train_metrics_every_n_steps = max(1, int(train_metrics_every_n_steps))
         self.loss_module: typing.Any = instantiate_loss_spec(loss_module)
         if self.loss_module is None:
             raise RuntimeError(
@@ -203,10 +205,22 @@ class IpesBase(BaseModule):
         # pred_proc = self.post_proc_pred(batch, pred)  # will be done on SIMLOD side
         return pred
 
-    def common_step(self, batch, step: str):
+    def should_compute_train_metrics(self, batch_idx: int) -> bool:
+        if self.train_metrics_every_n_steps <= 1:
+            return True
+        return (batch_idx % self.train_metrics_every_n_steps) == 0
+
+    def common_step(self, batch, step: str, batch_idx: typing.Optional[int] = None,
+                    compute_metrics: typing.Optional[bool] = None):
+        if compute_metrics is None:
+            if step == 'train':
+                compute_metrics = self.should_compute_train_metrics(batch_idx=batch_idx or 0)
+            else:
+                compute_metrics = True
+
         pred = self.regressor.forward(batch)
         loss, loss_components_mean, loss_components = self.compute_loss(pred=pred, batch_data=batch)
-        metrics_dict = self.calc_metrics(pred=pred, batch=batch)
+        metrics_dict = self.calc_metrics(pred=pred, batch=batch) if compute_metrics else {}
 
         if bool(self.debug):
             self.visualize_step_results(batch_data=batch, predictions=pred,
@@ -216,10 +230,11 @@ class IpesBase(BaseModule):
 
     def training_step(self, batch, batch_idx):
         loss, loss_components_mean, loss_components, metrics_dict, pred = self.common_step(
-            batch=batch, step='train')
+            batch=batch, step='train', batch_idx=batch_idx)
         self.do_logging(loss, loss_components_mean, log_type='train',
                         output_names=self.output_names, metrics_dict=metrics_dict, show_in_prog_bar=True,
-                        keys_to_log=self.keys_to_log, key_to_log_prog_bar='hm_rmse_ms')
+                        keys_to_log=self.keys_to_log, key_to_log_prog_bar='hm_rmse_ms',
+                        log_metrics=bool(metrics_dict))
         return loss
 
     def validation_step(self, batch, batch_idx):
