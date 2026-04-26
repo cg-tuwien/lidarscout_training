@@ -16,7 +16,7 @@ class IpesBase(BaseModule):
 
     def __init__(self,
                  predict_batch_size, debug, show_unused_params, name,
-                 loss_module=None, use_valid_pixel_mask: bool = False,
+                 loss_module: typing.Any = None, use_valid_pixel_mask: bool = False,
                  valid_pixel_mask_key: str = 'patch_hm_mask',
                  train_metrics_every_n_steps: int = 1):
         super().__init__(debug, show_unused_params, name)

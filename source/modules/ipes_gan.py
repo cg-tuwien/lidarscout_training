@@ -75,7 +75,7 @@ class IpesGan(IpesCnn):
                  has_color_input: bool,
                  has_color_output: bool,
                  predict_batch_size, debug, show_unused_params, name,
-                 loss_module=None, use_valid_pixel_mask: bool = False,
+                 loss_module: typing.Any = None, use_valid_pixel_mask: bool = False,
                  valid_pixel_mask_key: str = 'patch_hm_mask', use_sun_direction: bool = True,
                  discriminator_levels: int = 3, gan_loss_weight: float = 0.01,
                  feature_matching_weight: float = 0.5,

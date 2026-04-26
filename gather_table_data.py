@@ -6,7 +6,7 @@ import typing
 import imageio.v3 as iio
 from PIL import Image, ImageDraw, ImageFont
 
-in_path = r'C:\repos\lidarscout_training\results'
+in_path = r'./results/'
 
 datasets = [
     'ca_13', 
@@ -165,104 +165,103 @@ def _add_label_colored_metrics(
         metric_name: _fmt_fixed(metric_values[metric_name], width=max(len('40.0000'), len('None')), precision=4)
         for _, metric_name, _ in METRIC_SPECS
     }
+    out_w = pil_img.width
+    selected_font = _load_monospace_font(size=14)
+    draw_tmp = ImageDraw.Draw(Image.new('RGB', (1, 1), color=(255, 255, 255)))
 
-    selected_font = None
-    selected_run_text = None
-    selected_metric_segments = None
-    selected_run_line_w = None
-    selected_metric_seg_sizes = None
-    selected_metric_line_w = None
-    selected_line_h = None
+    def _text_w(text: str, font: ImageFont.ImageFont) -> int:
+        bbox = draw_tmp.textbbox((0, 0), text, font=font)
+        return int(bbox[2] - bbox[0])
 
-    # Fit both lines into image width: first shrink run name, then font size if needed.
+    def _chunk_text(text: str, max_chars: int) -> typing.List[str]:
+        if max_chars <= 1:
+            return [text]
+        chunks = []
+        start = 0
+        while start < len(text):
+            chunks.append(text[start:start + max_chars])
+            start += max_chars
+        return chunks if len(chunks) > 0 else ['']
+
+    metric_name_w = max(len(metric_name) for _, metric_name, _ in METRIC_SPECS)
+    value_w = max(len('40.0000'), len('None'))
+    block_name = f"{'x' * metric_name_w}="
+    block_value = 'x' * value_w
+    sep = ' | '
+
+    chosen_font = selected_font
+    chosen_line_h = 0
+    chosen_run_lines: typing.List[str] = []
+    chosen_cols = 1
+    chosen_block_name_w = 0
+    chosen_sep_w = 0
+
     for font_size in [14, 13, 12, 11, 10, 9, 8]:
         font = _load_monospace_font(size=font_size)
-        draw_tmp = ImageDraw.Draw(Image.new('RGB', (1, 1), color=(255, 255, 255)))
-        run_len = run_name_width
-        while run_len >= 1:
-            run_text = _ellipsize_left(run_name, run_len).rjust(run_len)
-            run_bbox = draw_tmp.textbbox((0, 0), run_text, font=font)
-            run_line_w = int(run_bbox[2] - run_bbox[0])
+        sample_bbox = draw_tmp.textbbox((0, 0), 'Ag', font=font)
+        line_h = int(sample_bbox[3] - sample_bbox[1])
 
-            metric_segments: typing.List[typing.Tuple[str, typing.Optional[typing.Tuple[int, int, int]]]] = []
-            for idx, (mean_name, metric_name, higher_is_better) in enumerate(METRIC_SPECS):
-                prefix = '|' if idx > 0 else ''
-                metric_segments.append((f'{prefix}{metric_name}=', None))
-                metric_segments.append((
-                    metric_texts[metric_name],
-                    _metric_bg_color(metric_values[metric_name], *metric_ranges[mean_name], higher_is_better=higher_is_better),
-                ))
+        block_name_w_px = _text_w(block_name, font)
+        block_w_px = _text_w(block_name + block_value, font)
+        sep_w_px = _text_w(sep, font)
+        available_w = max(1, out_w - 2 * pad)
 
-            metric_seg_sizes = []
-            for text, _ in metric_segments:
-                bbox = draw_tmp.textbbox((0, 0), text, font=font)
-                metric_seg_sizes.append((bbox[2] - bbox[0], bbox[3] - bbox[1]))
-
-            metric_line_w = int(sum(w for w, _ in metric_seg_sizes))
-            line_h = int(max([run_bbox[3] - run_bbox[1]] + [h for _, h in metric_seg_sizes]))
-            if max(run_line_w, metric_line_w) <= (pil_img.width - 2 * pad):
-                selected_font = font
-                selected_run_text = run_text
-                selected_metric_segments = metric_segments
-                selected_run_line_w = run_line_w
-                selected_metric_seg_sizes = metric_seg_sizes
-                selected_metric_line_w = metric_line_w
-                selected_line_h = line_h
+        cols = 1
+        while True:
+            next_cols = cols + 1
+            next_required = next_cols * block_w_px + (next_cols - 1) * sep_w_px
+            if next_required <= available_w:
+                cols = next_cols
+            else:
                 break
 
-            run_len -= 1
+        # Prefer fewer metric rows for readability while keeping run-name wrapping.
+        char_w_px = max(1, _text_w('M', font))
+        max_chars = max(1, available_w // char_w_px)
+        run_lines = _chunk_text(run_name, max_chars)
 
-        if selected_font is not None:
-            break
+        chosen_font = font
+        chosen_line_h = line_h
+        chosen_run_lines = run_lines
+        chosen_cols = cols
+        chosen_block_name_w = block_name_w_px
+        chosen_sep_w = sep_w_px
+        break
 
-    if selected_font is None:
-        selected_font = _load_monospace_font(size=8)
-        selected_run_text = _ellipsize_left(run_name, max(1, run_name_width // 2))
-        selected_metric_segments = []
-        for idx, (mean_name, metric_name, higher_is_better) in enumerate(METRIC_SPECS):
-            prefix = '|' if idx > 0 else ''
-            selected_metric_segments.append((f'{prefix}{metric_name}=', None))
-            selected_metric_segments.append((
-                metric_texts[metric_name],
-                _metric_bg_color(metric_values[metric_name], *metric_ranges[mean_name], higher_is_better=higher_is_better),
-            ))
-        draw_tmp = ImageDraw.Draw(Image.new('RGB', (1, 1), color=(255, 255, 255)))
-        run_bbox = draw_tmp.textbbox((0, 0), selected_run_text, font=selected_font)
-        selected_run_line_w = int(run_bbox[2] - run_bbox[0])
-        selected_metric_seg_sizes = []
-        for text, _ in selected_metric_segments:
-            bbox = draw_tmp.textbbox((0, 0), text, font=selected_font)
-            selected_metric_seg_sizes.append((bbox[2] - bbox[0], bbox[3] - bbox[1]))
-        selected_metric_line_w = int(sum(w for w, _ in selected_metric_seg_sizes))
-        selected_line_h = int(max([run_bbox[3] - run_bbox[1]] + [h for _, h in selected_metric_seg_sizes]))
-
-    assert selected_run_text is not None
-    assert selected_metric_segments is not None
-    assert selected_run_line_w is not None
-    assert selected_metric_seg_sizes is not None
-    assert selected_metric_line_w is not None
-    assert selected_line_h is not None
-
-    line_h = selected_line_h
-    header_h = 2 * line_h + 3 * pad
-    out_w = pil_img.width
+    metric_rows = int(math.ceil(len(METRIC_SPECS) / chosen_cols))
+    total_text_lines = len(chosen_run_lines) + metric_rows
+    header_h = total_text_lines * chosen_line_h + (total_text_lines + 1) * pad
 
     out = Image.new('RGB', (out_w, pil_img.height + header_h), color=(255, 255, 255))
-    img_x = out_w - pil_img.width
-    out.paste(pil_img, (img_x, header_h))
-
+    out.paste(pil_img, (0, header_h))
     draw_out = ImageDraw.Draw(out)
-    run_x = out_w - pad - selected_run_line_w
-    run_y = pad
-    draw_out.text((run_x, run_y), selected_run_text, fill=(0, 0, 0), font=selected_font)
 
-    x = out_w - pad - selected_metric_line_w
-    y = pad * 2 + line_h
-    for (text, bg_color), (seg_w, seg_h) in zip(selected_metric_segments, selected_metric_seg_sizes):
-        if bg_color is not None:
-            draw_out.rectangle([x, y, x + seg_w, y + line_h], fill=bg_color)
-        draw_out.text((x, y), text, fill=(0, 0, 0), font=selected_font)
-        x += seg_w
+    y = pad
+    for run_line in chosen_run_lines:
+        draw_out.text((pad, y), run_line, fill=(0, 0, 0), font=chosen_font)
+        y += chosen_line_h + pad
+
+    block_w_px = _text_w(block_name + block_value, chosen_font)
+    col_stride = block_w_px + chosen_sep_w
+    for row in range(metric_rows):
+        x = pad
+        for col in range(chosen_cols):
+            metric_idx = row * chosen_cols + col
+            if metric_idx >= len(METRIC_SPECS):
+                break
+
+            mean_name, metric_name, higher_is_better = METRIC_SPECS[metric_idx]
+            name_text = f'{metric_name:<{metric_name_w}}='
+            value_text = metric_texts[metric_name]
+            bg_color = _metric_bg_color(metric_values[metric_name], *metric_ranges[mean_name], higher_is_better=higher_is_better)
+
+            draw_out.text((x, y), name_text, fill=(0, 0, 0), font=chosen_font)
+            val_x = x + chosen_block_name_w
+            draw_out.rectangle([val_x, y, val_x + _text_w(value_text, chosen_font), y + chosen_line_h], fill=bg_color)
+            draw_out.text((val_x, y), value_text, fill=(0, 0, 0), font=chosen_font)
+            x += col_stride
+
+        y += chosen_line_h + pad
 
     return np.asarray(out)
 
@@ -354,6 +353,7 @@ for dataset in datasets:
                     excel_files.append(os.path.join(root, file))
 
     # read all excel files
+    parsed_excel_files = []
     for excel_file in excel_files:
         try:
             means = _get_metric_means(excel_file)
@@ -366,10 +366,15 @@ for dataset in datasets:
             value = means.get(mean_name)
             vals_to_print.append(value_format_str.format(value) if value is not None else 'None')
 
-        run_name = os.path.basename(excel_file).replace('metrics_', '').split('_test_')[0]
+        file_name = os.path.basename(excel_file)
+        if file_name.startswith('metrics_'):
+            file_name = file_name[len('metrics_'):]
+        run_name = file_name.split('_test_')[0]
+        parsed_excel_files.append((run_name, excel_file, means, vals_to_print))
         metrics_by_run[run_name] = means
         metrics_by_run_dataset[(run_name, dataset)] = means
 
+    for run_name, excel_file, means, vals_to_print in sorted(parsed_excel_files, key=lambda item: item[0]):
         vals_joined = join_str.join(vals_to_print)
         print(f'{os.path.basename(excel_file)[13:]} {join_str} {vals_joined}', flush=True)
 
@@ -407,6 +412,7 @@ for dataset in datasets:
 
         images_labeled = []
         if len(run_entries) > 0:
+            run_entries.sort(key=lambda entry: entry[0])
             metric_ranges = {}
             run_name_width = max(len(entry[0]) for entry in run_entries)
             for metric_name, _, _ in METRIC_SPECS:

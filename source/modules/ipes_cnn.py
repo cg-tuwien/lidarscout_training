@@ -13,13 +13,13 @@ class IpesCnn(IpesRgbd):
     def __init__(self,
                  hm_interp_size: int,
                  pts_to_img_methods: typing.List[str],
-                 output_names,
+                 output_names: typing.Optional[typing.Sequence[str]],
                  hm_size,
                  in_file, results_dir, network_latent_size, workers,
                  has_color_input: bool,
                  has_color_output: bool,
                  predict_batch_size, debug, show_unused_params, name,
-                 loss_module=None, use_valid_pixel_mask: bool = False,
+                 loss_module: typing.Any = None, use_valid_pixel_mask: bool = False,
                  valid_pixel_mask_key: str = 'patch_hm_mask', use_sun_direction: bool = True,
                  train_metrics_every_n_steps: int = 1):
 
@@ -29,7 +29,7 @@ class IpesCnn(IpesRgbd):
 
         self.in_file: str = in_file
         self.input_methods = pts_to_img_methods
-        self.output_names = list(output_names)
+        self.output_names = list(output_names) if output_names is not None else []
         self.results_dir: str = results_dir
         self.workers: int = workers
         self.use_sun_direction = use_sun_direction
@@ -49,6 +49,12 @@ class IpesCnn(IpesRgbd):
                 loss_name = getattr(self.loss_module, 'name', None)
                 if loss_name is not None:
                     self.output_names = [loss_name]
+
+        if len(self.output_names) == 0:
+            raise ValueError(
+                'output_names is required unless it can be derived from model.init_args.loss_module '
+                '(component_names or name).'
+            )
 
     @override
     def make_regressor(self):

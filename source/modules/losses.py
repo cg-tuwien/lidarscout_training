@@ -196,7 +196,7 @@ class LossComponent(pl.LightningModule):
         elif mode == 'ssim':
             from source.base.metrics import ssim
 
-            loss_rgb = 1.0 - ssim(pred_rgb, target_rgb, data_range=1.0)
+            loss_rgb = 1.0 - ssim(pred_rgb, target_rgb)
             h, w = target_rgb.shape[2], target_rgb.shape[3]
             loss_rgb = loss_rgb[:, None, None].broadcast_to((loss_rgb.shape[0], h, w))
             return loss_rgb

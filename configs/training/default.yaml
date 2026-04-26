@@ -2,7 +2,7 @@ seed_everything: 42
 
 model:
   init_args:
-    train_metrics_every_n_steps: 8
+    train_metrics_every_n_steps: 32
 
 trainer:
   default_root_dir: 'models/ipes'

@@ -1,4 +1,5 @@
 import os
+import typing
 
 import numpy as np
 import torch
@@ -15,7 +16,7 @@ class IpesRgbd(IpesBase):
                  has_color_input: bool,
                  has_color_output: bool,
                  predict_batch_size, debug, show_unused_params, name,
-                 loss_module=None, use_valid_pixel_mask: bool = False,
+                 loss_module: typing.Any = None, use_valid_pixel_mask: bool = False,
                  valid_pixel_mask_key: str = 'patch_hm_mask',
                  train_metrics_every_n_steps: int = 1):
 
