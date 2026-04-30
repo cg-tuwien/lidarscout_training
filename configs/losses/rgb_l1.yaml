@@ -1,0 +1,21 @@
+model:
+  init_args:
+    loss_module:
+      class_path: source.modules.losses.LossMixer
+      init_args:
+        use_valid_pixel_mask: True
+        learned_weights: False
+        weights:
+        - 1.0
+        - 1.0
+        losses:
+        - class_path: source.modules.losses.LossComponent
+          init_args:
+            name: hm_mse
+            kind: mse
+            target: hm
+        - class_path: source.modules.losses.LossComponent
+          init_args:
+            name: rgb_l1
+            kind: l1
+            target: rgb

@@ -1,0 +1,6 @@
+model:
+  init_args:
+    loss_module:
+      class_path: source.modules.losses.LossMixer
+      init_args:
+        use_valid_pixel_mask: True

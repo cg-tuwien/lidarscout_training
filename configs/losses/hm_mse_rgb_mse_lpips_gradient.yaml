@@ -7,11 +7,9 @@ model:
         learned_weights: False
         weights:
         - 1.0
-        - 0.25
-        - 0.25
-        - 0.20
-        - 0.20
-        - 0.20
+        - 1.0
+        - 0.1
+        - 1.0
         losses:
         - class_path: source.modules.losses.LossComponent
           init_args:
@@ -20,13 +18,8 @@ model:
             target: hm
         - class_path: source.modules.losses.LossComponent
           init_args:
-            name: hm_gradient
-            kind: gradient
-            target: hm
-        - class_path: source.modules.losses.LossComponent
-          init_args:
-            name: rgb_l1
-            kind: l1
+            name: rgb_mse
+            kind: mse
             target: rgb
         - class_path: source.modules.losses.LossComponent
           init_args:
@@ -35,11 +28,6 @@ model:
             target: rgb
         - class_path: source.modules.losses.LossComponent
           init_args:
-            name: rgb_ssim
-            kind: ssim
-            target: rgb
-        - class_path: source.modules.losses.LossComponent
-          init_args:
-            name: rgb_fft
-            kind: fft
+            name: rgb_gradient
+            kind: gradient
             target: rgb

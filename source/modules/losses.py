@@ -22,6 +22,13 @@ def instantiate_loss_spec(spec) -> typing.Any:
             init_args = spec.get('init_args', {}) or {}
             return cls(**{key: instantiate_loss_spec(value) for key, value in init_args.items()})
 
+        init_args = spec.get('init_args') if 'init_args' in spec else spec
+        if isinstance(init_args, Mapping):
+            if 'losses' in init_args or 'learned_weights' in init_args or 'weights' in init_args:
+                return LossMixer(**{key: instantiate_loss_spec(value) for key, value in init_args.items()})
+            if 'kind' in init_args or 'target' in init_args:
+                return LossComponent(**{key: instantiate_loss_spec(value) for key, value in init_args.items()})
+
         return {key: instantiate_loss_spec(value) for key, value in spec.items()}
 
     if isinstance(spec, Sequence) and not isinstance(spec, (str, bytes)):
@@ -40,6 +47,23 @@ def _broadcast_mask(mask: torch.Tensor, loss_map: torch.Tensor) -> torch.Tensor:
     if mask.ndim == 2 and loss_map.ndim == 3:
         return mask
     raise ValueError(f'Cannot broadcast mask with shape {tuple(mask.shape)} to loss map {tuple(loss_map.shape)}')
+
+
+def _center_crop_spatial_tensor(tensor: torch.Tensor, target_hw: typing.Tuple[int, int]) -> torch.Tensor:
+    target_h, target_w = target_hw
+    spatial_h, spatial_w = tensor.shape[-2], tensor.shape[-1]
+
+    if spatial_h == target_h and spatial_w == target_w:
+        return tensor
+
+    if spatial_h < target_h or spatial_w < target_w:
+        raise ValueError(
+            f'Cannot center-crop tensor with shape {tuple(tensor.shape)} to larger spatial shape {target_hw}'
+        )
+
+    offset_h = (spatial_h - target_h) // 2
+    offset_w = (spatial_w - target_w) // 2
+    return tensor[..., offset_h:offset_h + target_h, offset_w:offset_w + target_w]
 
 
 class LossComponent(pl.LightningModule):
@@ -96,6 +120,8 @@ class LossComponent(pl.LightningModule):
 
     def _reduce_to_spatial_mean(self, loss_map: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         mask = _broadcast_mask(mask, loss_map).float()
+        if mask.shape[-2:] != loss_map.shape[-2:]:
+            mask = _center_crop_spatial_tensor(mask, loss_map.shape[-2:])
         valid_count = mask.sum().clamp_min(1e-8)
         return (loss_map * mask).sum() / valid_count
 
@@ -200,6 +226,13 @@ class LossComponent(pl.LightningModule):
             h, w = target_rgb.shape[2], target_rgb.shape[3]
             loss_rgb = loss_rgb[:, None, None].broadcast_to((loss_rgb.shape[0], h, w))
             return loss_rgb
+        elif mode == 'flip':
+            from source.base.metrics import flip
+
+            loss_rgb = flip(pred_rgb, target_rgb)
+            h, w = target_rgb.shape[2], target_rgb.shape[3]
+            loss_rgb = loss_rgb[:, None, None].broadcast_to((loss_rgb.shape[0], h, w))
+            return loss_rgb
         elif mode == 'sparse':
             if 'patch_rgb_rasterize' not in batch:
                 raise KeyError('patch_rgb_rasterize is required for sparse RGB loss')
@@ -263,6 +296,8 @@ class LossComponent(pl.LightningModule):
             return self._rgb_loss_map(pred, batch, 'lpips')
         if self.kind == 'ssim':
             return self._rgb_loss_map(pred, batch, 'ssim')
+        if self.kind == 'flip':
+            return self._rgb_loss_map(pred, batch, 'flip')
         if self.kind == 'sparse':
             return self._rgb_loss_map(pred, batch, 'sparse')
         raise ValueError(f'Unsupported loss kind: {self.kind}')
@@ -287,21 +322,17 @@ class LossMixer(pl.LightningModule):
         self.valid_pixel_mask_key = valid_pixel_mask_key
         self.learned_weights = learned_weights
 
-        if weights is None:
-            weights = [1.0] * len(self.losses)
-        if len(weights) != len(self.losses):
-            raise ValueError('weights must match the number of losses')
-
-        weights_tensor = torch.tensor(weights, dtype=torch.float32)
-        if learned_weights:
-            self.weight_logits = nn.Parameter(weights_tensor.log())
-        else:
-            self.register_buffer('constant_weights', weights_tensor)
-
-    def _get_weights(self) -> torch.Tensor:
+        # For Uncertainty Weighting, we learn log(variance) to avoid negative variances
         if self.learned_weights:
-            return torch.softmax(self.weight_logits, dim=0)
-        return self.constant_weights
+            # Initialize with zeros (which means variance = 1.0, precision = 1.0)
+            self.log_vars = nn.Parameter(torch.zeros(len(self.losses), dtype=torch.float32))
+        else:
+            if weights is None:
+                weights = [1.0] * len(self.losses)
+            if len(weights) != len(self.losses):
+                raise ValueError('weights must match the number of losses')
+            weights_tensor = torch.tensor(weights, dtype=torch.float32)
+            self.register_buffer('constant_weights', weights_tensor)
 
     def forward(self, pred: torch.Tensor, batch: dict, model=None):
         loss_maps = []
@@ -326,7 +357,22 @@ class LossMixer(pl.LightningModule):
             loss_means.append(loss_mean)
 
         loss_means_tensor = torch.stack(loss_means)
-        weights = self._get_weights().to(loss_means_tensor.device)
-        total_loss = torch.sum(loss_means_tensor * weights)
+        
+        if self.learned_weights:
+            # Calculate precision: exp(-log_var)
+            precision = torch.exp(-self.log_vars)
+            # The uncertainty weighting formula: (1/sigma^2) * Loss + log(sigma)
+            # We use 0.5 * precision to match standard math, but it works without the 0.5 constant too.
+            weighted_losses = precision * loss_means_tensor + self.log_vars
+            total_loss = torch.sum(weighted_losses)
+            
+            # Log the active weight multiplier (precision) for validation tracking
+            if model is not None and not model.training:
+                for idx, component_name in enumerate(self.component_names):
+                    model.log(f'loss/weights/{component_name}', precision[idx], on_step=False, on_epoch=True)
+        else:
+            weights = self.constant_weights.to(loss_means_tensor.device)
+            total_loss = torch.sum(loss_means_tensor * weights)
+
         loss_maps_tensor = torch.stack(loss_maps)
         return total_loss, loss_means_tensor, loss_maps_tensor
