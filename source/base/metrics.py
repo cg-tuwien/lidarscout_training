@@ -43,7 +43,7 @@ def gradient_loss_masked(prediction: 'torch.Tensor', target: 'torch.Tensor'):
     pred_edges = kornia.filters.sobel(prediction) 
     gt_edges = kornia.filters.sobel(target)
     
-    error = (pred_edges - gt_edges)
+    error = torch.abs(pred_edges - gt_edges)
     
     nan_mask = torch.isnan(target)
     
