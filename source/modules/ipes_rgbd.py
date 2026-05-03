@@ -281,10 +281,10 @@ class IpesRgbd(IpesBase):
 
         test_set_file_name = os.path.basename(self.in_file)
         output_file = os.path.join(results_dir, 'metrics_{}_{}.xlsx'.format(self.name, test_set_file_name))
-        metrics_keys_to_log = ('hm_rmse_ms', 'hm_gradient_rmse')
+        metrics_keys_to_log = ('hm_rmse_ms', 'hm_gradient_rmse', 'hm_lpips')
         if self.has_color_output:
             metrics_keys_to_log += ('rgb_rmse', 'rgb_psnr', 'rgb_lpips', 'rgb_ssim', 'rgb_flip', 'rgb_gradient_rmse')
-        low_metric_names = {'hm_rmse_ms', 'hm_gradient_rmse', 'rgb_rmse', 'rgb_lpips', 'rgb_flip', 'rgb_gradient_rmse'}
+        low_metric_names = {'hm_rmse_ms', 'hm_gradient_rmse', 'hm_lpips', 'rgb_rmse', 'rgb_lpips', 'rgb_flip', 'rgb_gradient_rmse'}
         low_metrics_better = [metric_name in low_metric_names for metric_name in metrics_keys_to_log]
         loss_total_mean, metrics = make_test_report(
             shape_names=shape_names, results=metrics_dicts_stacked,
@@ -293,7 +293,12 @@ class IpesRgbd(IpesBase):
 
         hm_rmse_ms_mean = metrics[metrics_keys_to_log.index('hm_rmse_ms')]
         self.log('epoch/test/RMSE_ms', hm_rmse_ms_mean, on_step=False, on_epoch=True, logger=True)
-        log_str = f'\nTest results (mean): Loss={loss_total_mean}, HM RMSE_ms={hm_rmse_ms_mean}'
+        hm_gradient_rmse_mean = metrics[metrics_keys_to_log.index('hm_gradient_rmse')]
+        hm_lpips_mean = metrics[metrics_keys_to_log.index('hm_lpips')]
+        log_str = (
+            f'\nTest results (mean): Loss={loss_total_mean}, HM RMSE_ms={hm_rmse_ms_mean},'
+            f' HM Gradient RMSE={hm_gradient_rmse_mean}, HM LPIPS={hm_lpips_mean}'
+        )
         if self.has_color_output:
             rgb_psnr_mean = metrics[metrics_keys_to_log.index('rgb_psnr')]
             rgb_lpips_mean = metrics[metrics_keys_to_log.index('rgb_lpips')]

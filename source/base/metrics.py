@@ -73,8 +73,8 @@ def lpips(prediction: 'torch.Tensor', target: 'torch.Tensor',
         -> 'torch.Tensor':
     """
     LPIPS metric
-    :param prediction: tensor of shape (N, 3, H, W), values in range [0, 1]
-    :param target: tensor of shape (N, 3, H, W), values in range [0, 1]
+    :param prediction: tensor of shape (N, 1, H, W) or (N, 3, H, W), values in range [0, 1]
+    :param target: tensor of shape (N, 1, H, W) or (N, 3, H, W), values in range [0, 1]
     :param net_type: str indicating backbone network type to use. Choose between 'alex', 'vgg' or 'squeeze'
     :return: tensor of shape (N, 1)
     """
@@ -93,6 +93,11 @@ def lpips(prediction: 'torch.Tensor', target: 'torch.Tensor',
     # clip to [0, 1]
     prediction = prediction.clamp(0, 1)
     target = target.clamp(0, 1)
+
+    if prediction.shape[1] == 1:
+        prediction = prediction.repeat(1, 3, 1, 1)
+    if target.shape[1] == 1:
+        target = target.repeat(1, 3, 1, 1)
 
     # rescale to 256, AlexNet produces stripes, VGG fails completely
     prediction = resize(prediction, size=[256, 256], antialias=True)

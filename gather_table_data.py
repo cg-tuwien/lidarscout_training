@@ -16,8 +16,9 @@ datasets = [
             ]
 
 runs = [
-    'ipes_cnn_rgb',
-    'ipes_gan',
+    'ipes_cnn',
+    # 'ipes_gan',
+    # 'gan',
     # 'ipes_cnn', 'ipes_cnn_colorizer', 'ipes_cnn_only_nn', 'ipes_cnn_only_lin', 'ipes_dctnet',
     # 'ipes_cnn_allstar', 'ipes_unet', 'ipes_rast',
     # 'ipes_interp_cubic', 'ipes_interp_linear', 'ipes_interp_rast_hqsplat_mean',
@@ -25,11 +26,22 @@ runs = [
 
 METRIC_SPECS = [
     ('hm_rmse_ms_mean', 'hm_rmse_ms', False),
+    ('hm_gradient_rmse_mean', 'hm_gradient_rmse', False),
+    ('hm_lpips_mean', 'hm_lpips', False),
     ('rgb_psnr_mean', 'rgb_psnr', True),
     ('rgb_lpips_mean', 'rgb_lpips', False),
     ('rgb_ssim_mean', 'rgb_ssim', True),
     ('rgb_flip_mean', 'rgb_flip', False),
     ('rgb_gradient_rmse_mean', 'rgb_gradient_rmse', False),
+]
+
+IMAGE_METRIC_SPECS = [
+    ('hm_rmse_ms_mean', 'hm_rmse', 'hm_rmse_ms', False),
+    ('rgb_psnr_mean', 'rgb_psnr', 'rgb_psnr', True),
+    ('hm_gradient_rmse_mean', 'hm_grad_rmse', 'hm_gradient_rmse', False),
+    ('rgb_gradient_rmse_mean', 'rgb_grad_rmse', 'rgb_gradient_rmse', False),
+    ('hm_lpips_mean', 'hm_lpips', 'hm_lpips', False),
+    ('rgb_lpips_mean', 'rgb_lpips', 'rgb_lpips', False),
 ]
 
 header = [
@@ -160,16 +172,16 @@ def _add_label_colored_metrics(
     pad: int = 2) -> np.ndarray:
     pil_img = Image.fromarray(img)
 
-    metric_values = {metric_name: means.get(mean_name) for mean_name, metric_name, _ in METRIC_SPECS}
+    metric_values = {display_name: means.get(mean_name) for mean_name, display_name, _, _ in IMAGE_METRIC_SPECS}
     metric_texts = {
-        metric_name: _fmt_fixed(metric_values[metric_name], width=max(len('40.0000'), len('None')), precision=4)
-        for _, metric_name, _ in METRIC_SPECS
+        display_name: _fmt_fixed(metric_values[display_name], width=max(len('40.0000'), len('None')), precision=4)
+        for _, display_name, _, _ in IMAGE_METRIC_SPECS
     }
     out_w = pil_img.width
     selected_font = _load_monospace_font(size=14)
     draw_tmp = ImageDraw.Draw(Image.new('RGB', (1, 1), color=(255, 255, 255)))
 
-    def _text_w(text: str, font: ImageFont.ImageFont) -> int:
+    def _text_w(text: str, font: typing.Any) -> int:
         bbox = draw_tmp.textbbox((0, 0), text, font=font)
         return int(bbox[2] - bbox[0])
 
@@ -183,7 +195,7 @@ def _add_label_colored_metrics(
             start += max_chars
         return chunks if len(chunks) > 0 else ['']
 
-    metric_name_w = max(len(metric_name) for _, metric_name, _ in METRIC_SPECS)
+    metric_name_w = max(len(display_name) for _, display_name, _, _ in IMAGE_METRIC_SPECS)
     value_w = max(len('40.0000'), len('None'))
     block_name = f"{'x' * metric_name_w}="
     block_value = 'x' * value_w
@@ -247,13 +259,13 @@ def _add_label_colored_metrics(
         x = pad
         for col in range(chosen_cols):
             metric_idx = row * chosen_cols + col
-            if metric_idx >= len(METRIC_SPECS):
+            if metric_idx >= len(IMAGE_METRIC_SPECS):
                 break
 
-            mean_name, metric_name, higher_is_better = METRIC_SPECS[metric_idx]
-            name_text = f'{metric_name:<{metric_name_w}}='
-            value_text = metric_texts[metric_name]
-            bg_color = _metric_bg_color(metric_values[metric_name], *metric_ranges[mean_name], higher_is_better=higher_is_better)
+            mean_name, display_name, source_metric_name, higher_is_better = IMAGE_METRIC_SPECS[metric_idx]
+            name_text = f'{display_name:<{metric_name_w}}='
+            value_text = metric_texts[display_name]
+            bg_color = _metric_bg_color(metric_values[display_name], *metric_ranges[mean_name], higher_is_better=higher_is_better)
 
             draw_out.text((x, y), name_text, fill=(0, 0, 0), font=chosen_font)
             val_x = x + chosen_block_name_w
@@ -415,13 +427,13 @@ for dataset in datasets:
             run_entries.sort(key=lambda entry: entry[0])
             metric_ranges = {}
             run_name_width = max(len(entry[0]) for entry in run_entries)
-            for metric_name, _, _ in METRIC_SPECS:
-                vals = [entry[2].get(metric_name) for entry in run_entries]
+            for mean_name, _, source_metric_name, _ in IMAGE_METRIC_SPECS:
+                vals = [entry[2].get(source_metric_name) for entry in run_entries]
                 vals = [v for v in vals if v is not None]
                 if len(vals) == 0:
-                    metric_ranges[metric_name] = (0.0, 1.0)
+                    metric_ranges[mean_name] = (0.0, 1.0)
                 else:
-                    metric_ranges[metric_name] = (float(min(vals)), float(max(vals)))
+                    metric_ranges[mean_name] = (float(min(vals)), float(max(vals)))
 
             for run_dir, img, means in run_entries:
                 labeled = _add_label_colored_metrics(
