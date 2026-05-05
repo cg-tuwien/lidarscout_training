@@ -31,7 +31,7 @@ class IpesRgbd(IpesBase):
         self.valid_pixel_mask_key = valid_pixel_mask_key
         
         # self.keys_to_log = self.keys_to_log.union(frozenset({'rgb_psnr', }))
-        self.keys_to_log = self.keys_to_log.union(frozenset({'rgb_psnr', 'rgb_gradient_rmse', 'rgb_lpips', 'rgb_ssim', 'rgb_flip'}))
+        self.keys_to_log = self.keys_to_log.union(frozenset({'rgb_psnr', 'rgb_gradient_rmse', 'rgb_lpips'}))  # 'rgb_ssim', 'rgb_flip' 
         
         # self.rgb_loss_weight = nn.Parameter(torch.zeros(1))
         # self.rgb_fft_loss_weight = nn.Parameter(torch.zeros(1))
@@ -225,7 +225,7 @@ class IpesRgbd(IpesBase):
         rgb_rmse = torch.sqrt(torch.mean(torch.square(rgb_e)))
 
         from source.base.metrics import psnr, lpips, gradient_rmse
-        from source.base.metrics import ssim, flip
+        # from source.base.metrics import ssim, flip
         rgb_psnr = psnr(pred_rgb_flat_no_nan, rgb_target_flat_no_nan, 1.0)
         rgb_gradient_rmse = gradient_rmse(pred_rgb, rgb_target)
 
@@ -233,8 +233,8 @@ class IpesRgbd(IpesBase):
         rgb_target_no_nan = rgb_target.clone()
         rgb_target_no_nan[rgb_nan] = pred_rgb_safe[rgb_nan]
         rgb_lpips = lpips(pred_rgb_safe, rgb_target_no_nan, net_type='alex').mean()
-        rgb_ssim = ssim(pred_rgb_safe, rgb_target_no_nan).mean()
-        rgb_flip = flip(pred_rgb_safe, rgb_target_no_nan).mean()
+        # rgb_ssim = ssim(pred_rgb_safe, rgb_target_no_nan).mean()
+        # rgb_flip = flip(pred_rgb_safe, rgb_target_no_nan).mean()
 
         # ignore all nans (fill from prediction)
         # pred_rgb = pred_proc[:, 1:4].detach()
@@ -249,8 +249,8 @@ class IpesRgbd(IpesBase):
             'rgb_psnr': rgb_psnr,
             'rgb_gradient_rmse': rgb_gradient_rmse,
             'rgb_lpips': rgb_lpips,
-            'rgb_ssim': rgb_ssim,
-            'rgb_flip': rgb_flip,
+            # 'rgb_ssim': rgb_ssim,
+            # 'rgb_flip': rgb_flip,
         }
         eval_dict = {**hm_metrics, **rgb_metrics}
         return eval_dict
@@ -281,10 +281,10 @@ class IpesRgbd(IpesBase):
 
         test_set_file_name = os.path.basename(self.in_file)
         output_file = os.path.join(results_dir, 'metrics_{}_{}.xlsx'.format(self.name, test_set_file_name))
-        metrics_keys_to_log = ('hm_rmse_ms', 'hm_gradient_rmse', 'hm_lpips')
+        metrics_keys_to_log = ('hm_rmse_ms', 'hm_gradient_rmse')  # 'hm_lpips'
         if self.has_color_output:
-            metrics_keys_to_log += ('rgb_rmse', 'rgb_psnr', 'rgb_lpips', 'rgb_ssim', 'rgb_flip', 'rgb_gradient_rmse')
-        low_metric_names = {'hm_rmse_ms', 'hm_gradient_rmse', 'hm_lpips', 'rgb_rmse', 'rgb_lpips', 'rgb_flip', 'rgb_gradient_rmse'}
+            metrics_keys_to_log += ('rgb_rmse', 'rgb_psnr', 'rgb_lpips', 'rgb_gradient_rmse')  # 'rgb_ssim', 'rgb_flip'
+        low_metric_names = {'hm_rmse_ms', 'hm_gradient_rmse', 'rgb_rmse', 'rgb_lpips', 'rgb_gradient_rmse'}  # 'hm_lpips', 'rgb_flip'
         low_metrics_better = [metric_name in low_metric_names for metric_name in metrics_keys_to_log]
         loss_total_mean, metrics = make_test_report(
             shape_names=shape_names, results=metrics_dicts_stacked,
@@ -294,20 +294,19 @@ class IpesRgbd(IpesBase):
         hm_rmse_ms_mean = metrics[metrics_keys_to_log.index('hm_rmse_ms')]
         self.log('epoch/test/RMSE_ms', hm_rmse_ms_mean, on_step=False, on_epoch=True, logger=True)
         hm_gradient_rmse_mean = metrics[metrics_keys_to_log.index('hm_gradient_rmse')]
-        hm_lpips_mean = metrics[metrics_keys_to_log.index('hm_lpips')]
+        # hm_lpips_mean = metrics[metrics_keys_to_log.index('hm_lpips')]
         log_str = (
             f'\nTest results (mean): Loss={loss_total_mean}, HM RMSE_ms={hm_rmse_ms_mean},'
-            f' HM Gradient RMSE={hm_gradient_rmse_mean}, HM LPIPS={hm_lpips_mean}'
+            f' HM Gradient RMSE={hm_gradient_rmse_mean}'
         )
         if self.has_color_output:
             rgb_psnr_mean = metrics[metrics_keys_to_log.index('rgb_psnr')]
             rgb_lpips_mean = metrics[metrics_keys_to_log.index('rgb_lpips')]
-            rgb_ssim_mean = metrics[metrics_keys_to_log.index('rgb_ssim')]
-            rgb_flip_mean = metrics[metrics_keys_to_log.index('rgb_flip')]
+            # rgb_ssim_mean = metrics[metrics_keys_to_log.index('rgb_ssim')]
+            # rgb_flip_mean = metrics[metrics_keys_to_log.index('rgb_flip')]
             rgb_gradient_rmse_mean = metrics[metrics_keys_to_log.index('rgb_gradient_rmse')]
             log_str += (
-                f', RGB PSNR={rgb_psnr_mean}, RGB LPIPS={rgb_lpips_mean}, RGB SSIM={rgb_ssim_mean},'
-                f' RGB FLIP={rgb_flip_mean}, RGB Gradient RMSE={rgb_gradient_rmse_mean}'
+                f', RGB PSNR={rgb_psnr_mean}, RGB LPIPS={rgb_lpips_mean}, RGB Gradient RMSE={rgb_gradient_rmse_mean}'
             )
         print(log_str)
 

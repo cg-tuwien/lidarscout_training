@@ -24,7 +24,7 @@ class IpesBase(BaseModule):
         # self.lr = 0.001  # for lr tuner, not sure if this is used afterward
         self.test_step_outputs = []
         # self.keys_to_log = frozenset({'hm_rmse_ms',})
-        self.keys_to_log = frozenset({'hm_rmse_ms', 'hm_gradient_rmse', 'hm_lpips'})
+        self.keys_to_log = frozenset({'hm_rmse_ms', 'hm_gradient_rmse'})  # 'hm_lpips'
         self.regressor = self.make_regressor()
 
         self.predict_batch_size: int = predict_batch_size
@@ -175,15 +175,15 @@ class IpesBase(BaseModule):
         from source.base.metrics import gradient_rmse, lpips
         hm_gradient_rmse = gradient_rmse(pred_hm_ps.unsqueeze(1), hm_target_ps.unsqueeze(1))
 
-        hm_target_ps_no_nan = hm_target_ps.clone()
-        hm_target_ps_no_nan[hm_nan.view_as(hm_target_ps)] = pred_hm_ps[hm_nan.view_as(pred_hm_ps)]
-        hm_lpips = lpips(pred_hm_ps.unsqueeze(1), hm_target_ps_no_nan.unsqueeze(1), net_type='alex').mean()
+        # hm_target_ps_no_nan = hm_target_ps.clone()
+        # hm_target_ps_no_nan[hm_nan.view_as(hm_target_ps)] = pred_hm_ps[hm_nan.view_as(pred_hm_ps)]
+        # hm_lpips = lpips(pred_hm_ps.unsqueeze(1), hm_target_ps_no_nan.unsqueeze(1), net_type='alex').mean()
             
         eval_dict = {
             'hm_rmse_ms': hm_rmse_ms,
             #  'hm_rmse_ps': hm_rmse_ps,
             'hm_gradient_rmse': hm_gradient_rmse,
-            'hm_lpips': hm_lpips,
+            # 'hm_lpips': hm_lpips,
         }
         return eval_dict
 

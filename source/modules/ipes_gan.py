@@ -7,7 +7,6 @@ import pytorch_lightning as pl
 from overrides import override
 
 from source.modules.ipes_cnn import IpesCnn 
-import torch.nn as nn
 
 class PatchDiscriminator(nn.Module):
     def __init__(self, in_channels=3):
@@ -77,7 +76,9 @@ class IpesGan(IpesCnn):
                  predict_batch_size, debug, show_unused_params, name,
                  loss_module: typing.Any = None, use_valid_pixel_mask: bool = False,
                  valid_pixel_mask_key: str = 'patch_hm_mask', use_sun_direction: bool = True,
-                 discriminator_levels: int = 3, gan_loss_weight: float = 0.01,
+                 discriminator_levels: int = 3, 
+                 learned_gan_weights: bool = True,
+                 gan_loss_weight: float = 0.01,
                  feature_matching_weight: float = 0.5,
                  train_metrics_every_n_steps: int = 1):
 
@@ -100,9 +101,21 @@ class IpesGan(IpesCnn):
             self.discriminator = PatchDiscriminator_4lvls(in_channels=3)
         else:
             raise ValueError(f'Unsupported discriminator_levels={discriminator_levels}')
+        
         self.gan_loss = nn.BCEWithLogitsLoss()
-        self.gan_loss_weight = gan_loss_weight
-        self.feature_matching_weight = feature_matching_weight
+        
+        # =========================
+        # DYNAMIC WEIGHTING SETUP
+        # =========================
+        self.learned_gan_weights = learned_gan_weights
+        if self.learned_gan_weights:
+            # Learnable variance parameters initialized to 0 (precision = 1.0)
+            self.gan_log_var = nn.Parameter(torch.tensor(0.0, dtype=torch.float32))
+            self.feat_log_var = nn.Parameter(torch.tensor(0.0, dtype=torch.float32))
+        else:
+            # Fallback to hardcoded weights
+            self.gan_loss_weight = gan_loss_weight
+            self.feature_matching_weight = feature_matching_weight
 
         # MANDATORY for PyTorch Lightning GANs:
         # We must manually control opt.step() and opt.zero_grad().
@@ -125,8 +138,14 @@ class IpesGan(IpesCnn):
     def configure_optimizers(self):
         # opt_generator trains the IpesCnnNetwork (inherited from self.regressor)
         assert self.regressor is not None
-        opt_generator = torch.optim.AdamW(self.regressor.parameters(), lr=1e-4)
-        # opt_discriminator trains our Discriminator
+        
+        # We must explicitly hand the new learnable GAN weight parameters 
+        # to the Generator's optimizer so they update alongside the CNN layers!
+        g_params = list(self.regressor.parameters())
+        if self.learned_gan_weights:
+            g_params.extend([self.gan_log_var, self.feat_log_var])
+            
+        opt_generator = torch.optim.AdamW(g_params, lr=1e-4)
         opt_discriminator = torch.optim.AdamW(self.discriminator.parameters(), lr=1e-4)
         return [opt_generator, opt_discriminator], []
 
@@ -142,55 +161,54 @@ class IpesGan(IpesCnn):
         opt_discriminator = optimizers[1]
 
         # =========================
-        # 1. TRAIN GENERATOR (IpesCnnNetwork)
+        # 1. TRAIN GENERATOR
         # =========================
         self.toggle_optimizer(opt_generator)
 
         # Run the standard forward pass to get the baseline L2 anchor
+        # NOTE: loss_l2 is already processed by the Uncertainty Weighting in losses.py
         loss_l2, loss_components_mean, loss_components, metrics_dict, pred = self.common_step(
             batch=batch, step='train', batch_idx=batch_idx)
         
-        # Extract Height and RGB
-        # gt_hm = batch['hm_gt_ps']
         gt_rgb = batch['rgb_gt']
-
-        # Inject the missing channel dimension [B, H, W] -> [B, 1, H, W]
-        # if gt_hm.ndim == 3:
-        #     gt_hm = gt_hm.unsqueeze(1)
-
-        # Concatenate into a 4-channel Ground Truth [B, 4, H, W]
-        # gt_all = torch.cat([gt_hm, gt_rgb], dim=1)
-        gt_all = gt_rgb  # if we let the GAN modify the heights, we get seams and noise
-
-        # Create a valid mask across all 4 channels
+        gt_all = gt_rgb  # Isolated strictly to textures
         valid_mask = ~torch.isnan(gt_all)
         gt_safe = torch.nan_to_num(gt_all, nan=0.0)
         
-        # Mask the full 4-channel prediction
         pred_safe = pred[:, 1:] * valid_mask.float()
 
         total_g_loss = loss_l2
         
         if valid_mask.any():
-            # 1. Get REAL features (no gradients needed for the Generator pass)
             with torch.no_grad():
                 _, real_features = self.discriminator(gt_safe)
 
-            # 2. Get FAKE predictions and FAKE features
             fake_preds, fake_features = self.discriminator(pred_safe)
-            
-            # Base Adversarial penalty
             g_gan_loss = self.gan_loss(fake_preds, torch.ones_like(fake_preds))
 
-            # 3. FEATURE MATCHING LOSS
-            # Calculate L1 distance between intermediate layers
             feat_loss = 0.0
             for r_feat, f_feat in zip(real_features, fake_features):
                 feat_loss += nn.functional.l1_loss(f_feat, r_feat.detach())
 
-            # Combine the L2 anchor, the GAN penalty, and the Feature Matching penalty
-            # A weight of 0.1 to 1.0 is standard for Feature Matching
-            total_g_loss = loss_l2 + (self.gan_loss_weight * g_gan_loss) + (self.feature_matching_weight * feat_loss)
+            # =========================
+            # MATHEMATICAL MERGING
+            # =========================
+            if self.learned_gan_weights:
+                # Calculate precision modifiers
+                gan_precision = torch.exp(-self.gan_log_var)
+                feat_precision = torch.exp(-self.feat_log_var)
+                
+                # Apply Uncertainty Weighting Math: (1/sigma^2) * Loss + log(sigma)
+                weighted_gan_loss = gan_precision * g_gan_loss + self.gan_log_var
+                weighted_feat_loss = feat_precision * feat_loss + self.feat_log_var
+                
+                total_g_loss = loss_l2 + weighted_gan_loss + weighted_feat_loss
+                
+                # Log the active weight multipliers so you can track what the network prioritizes
+                self.log('loss/weights/gan_adversarial', gan_precision, prog_bar=False)
+                self.log('loss/weights/gan_feature_match', feat_precision, prog_bar=False)
+            else:
+                total_g_loss = loss_l2 + (self.gan_loss_weight * g_gan_loss) + (self.feature_matching_weight * feat_loss)
             
             self.log('loss/train/g_gan_loss', g_gan_loss, prog_bar=True)
             self.log('loss/train/g_feat_loss', feat_loss, prog_bar=True)
@@ -199,7 +217,6 @@ class IpesGan(IpesCnn):
         opt_generator.zero_grad()
         self.manual_backward(total_g_loss)
         opt_generator.step()
-
         self.untoggle_optimizer(opt_generator)
 
         # =========================
@@ -208,11 +225,9 @@ class IpesGan(IpesCnn):
         if valid_mask.any():
             self.toggle_optimizer(opt_discriminator)
 
-            # UNPACK THE TUPLE: Extract real_preds, ignore the features (_)
             real_preds, _ = self.discriminator(gt_safe)
             d_real_loss = self.gan_loss(real_preds, torch.ones_like(real_preds))
 
-            # UNPACK THE TUPLE: Extract fake_preds_d, ignore the features (_)
             fake_preds_d, _ = self.discriminator(pred_safe.detach())
             d_fake_loss = self.gan_loss(fake_preds_d, torch.zeros_like(fake_preds_d))
 
@@ -221,12 +236,10 @@ class IpesGan(IpesCnn):
             opt_discriminator.zero_grad()
             self.manual_backward(total_d_loss)
             opt_discriminator.step()
-
             self.untoggle_optimizer(opt_discriminator)
 
             self.log('loss/train/d_loss', total_d_loss, prog_bar=True)
 
-        # Log the standard metrics (RMSE, PSNR, etc.) using the existing pipeline
         self.do_logging(total_g_loss, loss_components_mean, log_type='train',
                         output_names=self.output_names, metrics_dict=metrics_dict, show_in_prog_bar=True,
                         keys_to_log=self.keys_to_log, key_to_log_prog_bar='hm_rmse_ms',

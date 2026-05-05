@@ -36,8 +36,10 @@ def make_configs(loss='rgb_mse', augmentation='enabled', use_valid_pixel_mask='e
     configs = [
         'configs/architectures/cnn.yaml',
     ]
+    
     if gan:
         configs.append('configs/architectures/gan.yaml')
+        
     configs.extend([
         f'configs/losses/{loss}.yaml',
         f'configs/losses/use_valid_pixel_mask_{use_valid_pixel_mask}.yaml',
@@ -47,6 +49,7 @@ def make_configs(loss='rgb_mse', augmentation='enabled', use_valid_pixel_mask='e
         'configs/inputs/default.yaml',
         'configs/inputs/rgb_nearest_linear.yaml',
     ])
+    
     return tuple(configs)
 
 
@@ -72,11 +75,26 @@ RUN_SPECS = (
     #     'configs': make_configs(
     #         loss='hm_mse_rgb_mse_lpips_ssim_gradient_learned', augmentation='disabled') + ('configs/inputs/mask.yaml',),
     # },
-    {
-        'name': 'ipes_cnn_hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned_mask_noaug',
+    # {
+    #     'name': 'ipes_cnn_hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned_mask_noaug',
+    #     'configs': make_configs(
+    #         loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned', augmentation='disabled') + ('configs/inputs/mask.yaml',),
+    # },
+    {   # Asymmetric Dual-Stream architecture
+        'name': 'ipes_cnn_v2', # ipes_cnn_hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned_mask_noaug with new CNN architecture
         'configs': make_configs(
             loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned', augmentation='disabled') + ('configs/inputs/mask.yaml',),
     },
+    # {   # Fully Independent Streams
+    #     'name': 'ipes_cnn_v3', # ipes_cnn_hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned_mask_noaug with new CNN architecture
+    #     'configs': make_configs(
+    #         loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned', augmentation='disabled') + ('configs/inputs/mask.yaml',),
+    # },
+    # {   # Fully Independent Streams squeezed
+    #     'name': 'ipes_cnn_v3_squeezed', # ipes_cnn_hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned_mask_noaug with new CNN architecture
+    #     'configs': make_configs(
+    #         loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned', augmentation='disabled') + ('configs/inputs/mask.yaml',),
+    # },
     # {  # better without augmentation
     #     'name': 'ipes_cnn_rgb_noaug',
     #     'configs': make_configs(augmentation='disabled'),
@@ -96,14 +114,6 @@ RUN_SPECS = (
     # {  # a bit worse, not matching metric
     #     'name': 'ipes_cnn_rgb_l1',
     #     'configs': make_configs(loss='rgb_l1'),
-    # },
-    # {
-    #     'name': 'ipes_cnn_rgb_lpips',
-    #     'configs': make_configs(loss='rgb_lpips'),
-    # },
-    # {
-    #     'name': 'ipes_cnn_hm_mse_rgb_lpips',
-    #     'configs': make_configs(loss='hm_mse_rgb_lpips'),
     # },
     # {
     #     'name': 'ipes_cnn_hm_mse_rgb_mse_lpips_learned',
@@ -165,11 +175,21 @@ RUN_SPECS = (
     #     'name': 'ipes_gan_rgb_flip',
     #     'configs': make_configs(loss='rgb_flip', gan=True),
     # },
-    {
-        'name': 'ipes_gan_hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned_mask_noaug',
-        'configs': make_configs(
-            loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned', augmentation='disabled', gan=True) + ('configs/inputs/mask.yaml',),
-    },
+    # {
+    #     'name': 'ipes_gan_hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned_mask_noaug',
+    #     'configs': make_configs(
+    #         loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned', augmentation='disabled', gan=True) + ('configs/inputs/mask.yaml',),
+    # },
+    # {
+    #     'name': 'ipes_gan_v2',  # ipes_gan_hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned_mask_noaug with new CNN architecture
+    #     'configs': make_configs(
+    #         loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned', augmentation='disabled', gan=True) + ('configs/inputs/mask.yaml',),
+    # },
+    # {
+    #     'name': 'ipes_gan_v2_fixed',  # ipes_gan_hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned_mask_noaug with new CNN architecture
+    #     'configs': make_configs(
+    #         loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned', augmentation='disabled', gan=True) + ('configs/inputs/mask.yaml',),
+    # },
 )
 
 
@@ -244,7 +264,7 @@ def iter_run_argvs():
             yield build_stage_argv('test', spec, dataset, 'datasets/laz_minimal/test_{dataset}.txt')
 
         for dataset in COMMON_TEST_DATASETS:
-            yield build_stage_argv('predict', spec, dataset, 'datasets/laz_minimal/bins/{dataset}/chunkPoints.csv')
+           yield build_stage_argv('predict', spec, dataset, 'datasets/laz_minimal/bins/{dataset}/chunkPoints.csv')
 
 
 def fixed_cmd(cmd=None):

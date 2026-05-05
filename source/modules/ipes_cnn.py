@@ -97,9 +97,6 @@ class IpesCnnNetwork(pl.LightningModule):
         self.has_color_output = has_color_output
         self.use_sun_direction = use_sun_direction
 
-        self.input_channels = 4 if has_color_input else 1
-        self.output_channels = 4 if has_color_output else 1
-
         def _make_encoder(in_channels, out_channels):
             # gets 96x96, returns 1x1, hand-tuned sizes
             return nn.Sequential(
@@ -130,7 +127,9 @@ class IpesCnnNetwork(pl.LightningModule):
                 nn.ConvTranspose2d(out_channels, out_channels, kernel_size=9),
             )
 
-        # HM encoder
+        # ==========================================
+        # 1. THE HEIGHTMAP STREAM (Geometry Path)
+        # ==========================================
         self.hm_encoders = [_make_encoder(in_channels=1, out_channels=latent_size)
                             for _ in range(self.num_input_methods)]
         self.hm_encoders = nn.ModuleList(self.hm_encoders)
@@ -139,111 +138,133 @@ class IpesCnnNetwork(pl.LightningModule):
             nn.ReLU(inplace=True),
         )
 
-        # RGB encoder
-        if self.has_color_input:
-            self.rgb_encoders = [_make_encoder(in_channels=3, out_channels=latent_size)
-                                for _ in range(self.num_input_methods)]
-            self.rgb_encoders = nn.ModuleList(self.rgb_encoders)
-            self.rgb_merger = nn.Sequential(
-                nn.Conv2d(latent_size * self.num_input_methods, latent_size * self.num_input_methods * 2, kernel_size=1),
-                nn.ReLU(inplace=True),
-            )
+        self.hm_decoder = _make_decoder(in_channels=latent_size * self.num_input_methods * 2, out_channels=1)
 
-        # HM-RGB merger
-        hm_rgb_merger_output_size = latent_size * 4 * self.num_input_methods \
-            if self.has_color_input else latent_size * 2 * self.num_input_methods
-        self.hm_rgb_merger = nn.Sequential(
-            nn.Conv2d(hm_rgb_merger_output_size, hm_rgb_merger_output_size // 2, kernel_size=1),
-            nn.ReLU(inplace=True),
-        )
-
-        # Decoder per channel
-        self.decoders = [_make_decoder(in_channels=hm_rgb_merger_output_size // 2, out_channels=1)
-                         for _ in range(self.output_channels)]
-        self.decoders = nn.ModuleList(self.decoders)
-
-        # Residual
-        # residual_in_channels = self.output_channels + self.input_channels * self.num_input_methods + 1
-        residual_in_channels = self.output_channels + self.input_channels * self.num_input_methods
+        hm_residual_in = 1 + (1 * self.num_input_methods) # hm_pred + hm_inputs
         if self.use_sun_direction:
-            residual_in_channels += 2  # for sun pos 2D vector
-        self.residual = nn.Sequential(
-            nn.Conv2d(residual_in_channels, residual_in_channels, kernel_size=9, padding=4),
+            hm_residual_in += 2
+            
+        self.hm_residual = nn.Sequential(
+            nn.Conv2d(hm_residual_in, hm_residual_in, kernel_size=9, padding=4),
             nn.ReLU(inplace=True),
-            nn.Conv2d(residual_in_channels, 32, kernel_size=9, padding=4),
+            nn.Conv2d(hm_residual_in, 32, kernel_size=9, padding=4),
             nn.ReLU(inplace=True),
-            nn.Conv2d(32, self.output_channels, kernel_size=9, padding=4),
+            nn.Conv2d(32, 1, kernel_size=9, padding=4),
         )
+
+        # ==========================================
+        # 2. THE RGB STREAM (Texture Path)
+        # ==========================================
+        if self.has_color_output:
+            if self.has_color_input:
+                self.rgb_encoders = [_make_encoder(in_channels=3, out_channels=latent_size)
+                                    for _ in range(self.num_input_methods)]
+                self.rgb_encoders = nn.ModuleList(self.rgb_encoders)
+                self.rgb_merger = nn.Sequential(
+                    nn.Conv2d(latent_size * self.num_input_methods, latent_size * self.num_input_methods * 2, kernel_size=1),
+                    nn.ReLU(inplace=True),
+                )
+                rgb_decoder_in = latent_size * self.num_input_methods * 4 # 2x from RGB, 2x from detached HM
+                rgb_residual_in = 4 + (4 * self.num_input_methods) # pred_rgb(3) + pred_hm(1) + rgb_in(3*N) + hm_in(1*N)
+            else:
+                rgb_decoder_in = latent_size * self.num_input_methods * 2 # only gets detached HM features
+                rgb_residual_in = 4 + (1 * self.num_input_methods) # pred_rgb(3) + pred_hm(1) + hm_in(1*N)
+
+            self.rgb_decoder = _make_decoder(in_channels=rgb_decoder_in, out_channels=3)
+
+            if self.use_sun_direction:
+                rgb_residual_in += 2
+
+            self.rgb_residual = nn.Sequential(
+                nn.Conv2d(rgb_residual_in, rgb_residual_in, kernel_size=9, padding=4),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(rgb_residual_in, 32, kernel_size=9, padding=4),
+                nn.ReLU(inplace=True),
+                nn.Conv2d(32, 3, kernel_size=9, padding=4),
+            )
 
     @staticmethod
     def _replace_nan_(tensor: torch.Tensor, replace_val=0.5):
         nan_mask = torch.isnan(tensor)
-        # tensor[nan_mask] = torch.rand_like(tensor)[nan_mask]  # uniform noise
-        tensor[nan_mask] = replace_val  # mean val
+        tensor[nan_mask] = replace_val  
 
     def forward(self, batch):
-        # network uses query points for batch dim -> need to flatten shape * query points dim
         hm_inputs = [batch['patch_hm_{}'.format(method)] for method in self.input_methods]
         rgb_inputs = []
         sun_pos_xy = batch['sun_pos_xy']
 
-        # replace RGB NaN with noise, will get zero gradient
         for hm_input in hm_inputs:
             self._replace_nan_(hm_input, 0.0)
 
         if self.has_color_input:
             rgb_inputs = [batch['patch_rgb_{}'.format(method)] for method in self.input_methods]
-
-            # replace RGB NaN with noise, will get zero gradient
             for rgb_input in rgb_inputs:
                 self._replace_nan_(rgb_input)
 
-        b, _, h, w = hm_inputs[0].shape  # [b, r, r]
+        b, _, h, w = hm_inputs[0].shape 
 
-        # interpolated patches are normalized with a different resolution than the output patches
         hm_inputs = [
             hm_input if method == 'mask' else hm_input / self.hm_size * self.hm_interp_size
             for method, hm_input in zip(self.input_methods, hm_inputs)
         ]
 
-        # # debug with GT
-        # hm_pts_flat = batch['hm_gt_ps'].view(hm_input.shape)
-        # hm_pts_flat[torch.isnan(hm_pts_flat)] = 0.0
+        if self.use_sun_direction:
+            sun_dir_map = sun_pos_xy[:, :, None, None].expand(-1, -1, h, w)
 
-        # HM
+        # ==========================================
+        # 1. PROCESS HEIGHTMAP
+        # ==========================================
         hm_inputs_enc = [encoder(hm_input) for encoder, hm_input in zip(self.hm_encoders, hm_inputs)]
         hm_inputs_enc = torch.cat(hm_inputs_enc, dim=1)
         hm_inputs_merged = self.hm_merger(hm_inputs_enc)
 
-        # RGB
+        pred_hm_base = self.hm_decoder(hm_inputs_merged)
+
+        hm_res_inputs = [pred_hm_base] + hm_inputs
+        if self.use_sun_direction:
+            hm_res_inputs.append(sun_dir_map)
+        
+        hm_res_input_tensor = torch.cat(hm_res_inputs, dim=1)
+        pred_hm_res = self.hm_residual(hm_res_input_tensor)
+
+        h_offset = (h - self.hm_size) // 2
+        w_offset = (w - self.hm_size) // 2
+        pred_hm_final = pred_hm_res[:, :, h_offset:h_offset + self.hm_size, w_offset:w_offset + self.hm_size]
+
+        if not self.has_color_output:
+            return pred_hm_final
+
+        # ==========================================
+        # 2. PROCESS RGB (The One-Way Bridge)
+        # ==========================================
         if self.has_color_input:
             rgb_inputs_enc = [encoder(rgb_input) for encoder, rgb_input in zip(self.rgb_encoders, rgb_inputs)]
             rgb_inputs_enc = torch.cat(rgb_inputs_enc, dim=1)
             rgb_inputs_merged = self.rgb_merger(rgb_inputs_enc)
+            
+            # The Bridge: RGB sees HM features, but gradients stop here
+            rgb_decoder_input = torch.cat((rgb_inputs_merged, hm_inputs_merged.detach()), dim=1)
         else:
-            rgb_inputs_merged = torch.zeros((hm_inputs_merged.shape[0],) + (0,) + hm_inputs_merged.shape[2:],
-                                            device=hm_inputs_merged.device)
+            rgb_decoder_input = hm_inputs_merged.detach()
 
-        # HM-RGB merger
-        hm_rgb_inputs = torch.cat((hm_inputs_merged, rgb_inputs_merged), dim=1)
-        hm_rgb_inputs = self.hm_rgb_merger(hm_rgb_inputs)
+        pred_rgb_base = self.rgb_decoder(rgb_decoder_input)
 
-        # Decoder
-        pred = [decoder(hm_rgb_inputs) for decoder in self.decoders]
-        pred = torch.cat(pred, dim=1)
-
-        # Residual, slice xy middle to target resolution
+        # The Bridge: RGB residual sees HM predictions, but gradients stop here
         if self.has_color_input:
-            all_inputs = torch.cat(hm_inputs + rgb_inputs, dim=1)
+            rgb_res_inputs = [pred_hm_base.detach(), pred_rgb_base] + hm_inputs + rgb_inputs
         else:
-            all_inputs = torch.cat(hm_inputs, dim=1)
+            rgb_res_inputs = [pred_hm_base.detach(), pred_rgb_base] + hm_inputs
+            
         if self.use_sun_direction:
-            sun_dir_map = sun_pos_xy[:, :, None, None].expand(-1, -1, h, w)
-            all_inputs = torch.cat((all_inputs, sun_dir_map), dim=1)
-        pred = torch.cat((pred, all_inputs), dim=1)
-        pred_res = self.residual(pred)
-        h_offset = (h - self.hm_size) // 2
-        w_offset = (w - self.hm_size) // 2
-        pred_res = pred_res[:, :, h_offset:h_offset + self.hm_size, w_offset:w_offset + self.hm_size]
+            rgb_res_inputs.append(sun_dir_map)
 
-        return pred_res  # [b, c, hres, hres]
+        rgb_res_input_tensor = torch.cat(rgb_res_inputs, dim=1)
+        pred_rgb_res = self.rgb_residual(rgb_res_input_tensor)
+
+        pred_rgb_final = pred_rgb_res[:, :, h_offset:h_offset + self.hm_size, w_offset:w_offset + self.hm_size]
+
+        # ==========================================
+        # 3. COMBINE OUTPUT
+        # ==========================================
+        # Output format [B, 4, H, W] expected by losses.py
+        return torch.cat((pred_hm_final, pred_rgb_final), dim=1)

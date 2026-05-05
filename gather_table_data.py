@@ -27,20 +27,20 @@ runs = [
 METRIC_SPECS = [
     ('hm_rmse_ms_mean', 'hm_rmse_ms', False),
     ('hm_gradient_rmse_mean', 'hm_gradient_rmse', False),
-    ('hm_lpips_mean', 'hm_lpips', False),
+    # ('hm_lpips_mean', 'hm_lpips', False), 
     ('rgb_psnr_mean', 'rgb_psnr', True),
     ('rgb_lpips_mean', 'rgb_lpips', False),
-    ('rgb_ssim_mean', 'rgb_ssim', True),
-    ('rgb_flip_mean', 'rgb_flip', False),
+    # ('rgb_ssim_mean', 'rgb_ssim', True),
+    # ('rgb_flip_mean', 'rgb_flip', False),
     ('rgb_gradient_rmse_mean', 'rgb_gradient_rmse', False),
 ]
 
 IMAGE_METRIC_SPECS = [
-    ('hm_rmse_ms_mean', 'hm_rmse', 'hm_rmse_ms', False),
     ('rgb_psnr_mean', 'rgb_psnr', 'rgb_psnr', True),
-    ('hm_gradient_rmse_mean', 'hm_grad_rmse', 'hm_gradient_rmse', False),
+    ('hm_rmse_ms_mean', 'hm_rmse', 'hm_rmse_ms', False),
     ('rgb_gradient_rmse_mean', 'rgb_grad_rmse', 'rgb_gradient_rmse', False),
-    ('hm_lpips_mean', 'hm_lpips', 'hm_lpips', False),
+    ('hm_gradient_rmse_mean', 'hm_grad_rmse', 'hm_gradient_rmse', False),
+    # ('hm_lpips_mean', 'hm_lpips', 'hm_lpips', False),
     ('rgb_lpips_mean', 'rgb_lpips', 'rgb_lpips', False),
 ]
 
@@ -60,6 +60,8 @@ print(header_joined)
 image_rel_dir = os.path.join('laz_minimal', 'test', '00_hm_rgb_fig_input')
 image_file_names = [
     'ca_13_0_10_b0_00_hm_rgb_fig_input.png',
+    'ca_13_10_20_b0_00_hm_rgb_fig_input.png',
+    'ca_13_20_30_b0_00_hm_rgb_fig_input.png',
 ]
 
 
