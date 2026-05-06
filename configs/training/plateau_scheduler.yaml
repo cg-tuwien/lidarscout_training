@@ -1,0 +1,29 @@
+lr_scheduler:
+  class_path: pytorch_lightning.cli.ReduceLROnPlateau
+  init_args:
+    monitor: epoch/sched_target
+    mode: min
+    factor: 0.1
+    patience: 3
+    min_lr: 1e-6
+
+trainer:
+  callbacks:
+  - class_path: source.cli.PPSProgressBar
+  - class_path: LearningRateMonitor
+    init_args:
+      logging_interval: step
+  - class_path: pytorch_lightning.callbacks.EarlyStopping
+    init_args:
+      monitor: epoch/sched_target
+      mode: min
+      patience: 10
+      strict: True
+  - class_path: source.cli.TorchScriptModelCheckpoint
+    init_args:
+      save_last: True
+      save_top_k: 1
+      enable_version_counter: False
+  - class_path: ModelSummary
+    init_args:
+      max_depth: 2

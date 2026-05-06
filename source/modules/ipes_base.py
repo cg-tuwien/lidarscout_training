@@ -267,6 +267,15 @@ class IpesBase(BaseModule):
         self.do_logging(loss, loss_components_mean, log_type='val',
                         output_names=self.output_names, metrics_dict=metrics_dict, show_in_prog_bar=True,
                         keys_to_log=self.keys_to_log, key_to_log_prog_bar='hm_rmse_ms')
+        
+        # Log validation losses/metrics aggregated per-epoch so LR schedulers
+        # that monitor validation metrics (e.g. ReduceLROnPlateau) can access them.
+        # we can't use the learned weights for this because they are not stable
+        # therefore, we use a simple sum of the most important loss components, which is the height RMSE and RGB RMSE
+        scheduler_target_loss = metrics_dict['hm_rmse_ms'] + (metrics_dict['rgb_rmse'] if 'rgba_rmse' in metrics_dict else 0.0)
+        self.log('epoch/sched_target', scheduler_target_loss, on_step=False, on_epoch=True,
+                 logger=True, batch_size=batch['pts_query_ms'].shape[0])
+        
         return loss
 
     def test_step(self, batch, batch_idx):

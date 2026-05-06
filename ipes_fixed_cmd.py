@@ -80,15 +80,27 @@ RUN_SPECS = (
     #         include_rgb_input=False) + ('configs/inputs/mask.yaml',),
     #     'overrides': ('--model.init_args.has_color_output', 'True'),
     # },
+    # {   # Asymmetric Dual-Stream architecture
+    #     'name': 'ipes_cnn_v2_nosundir', # ipes_cnn_hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned_mask_noaug with new CNN architecture
+    #     'configs': make_configs(
+    #         loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned', augmentation='disabled') + ('configs/inputs/mask.yaml',),
+    # },
+    # {   # Asymmetric Dual-Stream architecture, extra data ablation
+    #     'name': 'ipes_cnn_v2_extra_data_nosundir',
+    #     'configs': make_configs(
+    #         loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned', augmentation='disabled') + ('configs/datasets/train_allstar.yaml', 'configs/inputs/mask.yaml'),
+    # },
+    # {   # Asymmetric Dual-Stream architecture
+    #     'name': 'ipes_cnn_v2_nosundir_sched', # ipes_cnn_hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned_mask_noaug with new CNN architecture
+    #     'configs': make_configs(
+    #         loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned', augmentation='disabled') + ('configs/inputs/mask.yaml', 'configs/training/plateau_scheduler.yaml'),
+    #     'overrides': ('--trainer.max_epochs', '150'),
+    # },
     {   # Asymmetric Dual-Stream architecture
-        'name': 'ipes_cnn_v2_nosundir', # ipes_cnn_hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned_mask_noaug with new CNN architecture
+        'name': 'ipes_cnn_v2_nosundir_sched_fixed_long', # ipes_cnn_hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned_mask_noaug with new CNN architecture
         'configs': make_configs(
-            loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned', augmentation='disabled') + ('configs/inputs/mask.yaml',),
-    },
-    {   # Asymmetric Dual-Stream architecture, extra data ablation
-        'name': 'ipes_cnn_v2_extra_data_nosundir',
-        'configs': make_configs(
-            loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned', augmentation='disabled') + ('configs/datasets/train_allstar.yaml', 'configs/inputs/mask.yaml'),
+            loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned', augmentation='disabled') + ('configs/inputs/mask.yaml', 'configs/training/plateau_scheduler.yaml'),
+        'overrides': ('--trainer.max_epochs', '1500'),
     },
     # {  # baseline
     #     'name': 'ipes_cnn_rgb',
