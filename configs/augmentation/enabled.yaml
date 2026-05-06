@@ -1,3 +1,7 @@
 data:
   init_args:
     do_data_augmentation: True
+
+model:
+  init_args:
+    use_sun_direction: True

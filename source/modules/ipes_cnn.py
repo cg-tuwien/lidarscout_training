@@ -20,7 +20,7 @@ class IpesCnn(IpesRgbd):
                  has_color_output: bool,
                  predict_batch_size, debug, show_unused_params, name,
                  loss_module: typing.Any = None, use_valid_pixel_mask: bool = False,
-                 valid_pixel_mask_key: str = 'patch_hm_mask', use_sun_direction: bool = True,
+                 valid_pixel_mask_key: str = 'patch_hm_mask', use_sun_direction: bool = False,
                  train_metrics_every_n_steps: int = 1):
 
         self.network_latent_size: int = network_latent_size

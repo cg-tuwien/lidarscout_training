@@ -31,7 +31,14 @@ COMMON_TEST_DATASETS = (
 )
 
 
-def make_configs(loss='rgb_mse', augmentation='enabled', use_valid_pixel_mask='enabled', gan=False):
+def make_configs(
+    loss='rgb_mse',
+    augmentation='enabled',
+    use_valid_pixel_mask='enabled',
+    gan=False,
+    dataset='train',
+    include_rgb_input=True,
+):
     """Build config list for a run. Standard set: architecture, loss, training, dataset, augmentation, inputs."""
     configs = [
         'configs/architectures/cnn.yaml',
@@ -44,16 +51,45 @@ def make_configs(loss='rgb_mse', augmentation='enabled', use_valid_pixel_mask='e
         f'configs/losses/{loss}.yaml',
         f'configs/losses/use_valid_pixel_mask_{use_valid_pixel_mask}.yaml',
         'configs/training/default.yaml',
-        'configs/datasets/train.yaml',
+        f'configs/datasets/{dataset}.yaml',
         f'configs/augmentation/{augmentation}.yaml',
         'configs/inputs/default.yaml',
-        'configs/inputs/rgb_nearest_linear.yaml',
     ])
+
+    if include_rgb_input:
+        configs.append('configs/inputs/rgb_nearest_linear.yaml')
     
     return tuple(configs)
 
 
 RUN_SPECS = (
+    # {   # Asymmetric Dual-Stream architecture
+    #     'name': 'ipes_cnn_v2', # ipes_cnn_hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned_mask_noaug with new CNN architecture
+    #     'configs': make_configs(
+    #         loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned', augmentation='disabled') + ('configs/inputs/mask.yaml',),
+    # },
+    # {   # Asymmetric Dual-Stream architecture, extra data ablation
+    #     'name': 'ipes_cnn_v2_extra_data',
+    #     'configs': make_configs(
+    #         loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned', augmentation='disabled') + ('configs/datasets/train_allstar.yaml', 'configs/inputs/mask.yaml'),
+    # },
+    # {   # Asymmetric Dual-Stream architecture, colorization ablation
+    #     'name': 'ipes_cnn_v2_colorizer',
+    #     'configs': make_configs(
+    #         loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned', augmentation='disabled',
+    #         include_rgb_input=False) + ('configs/inputs/mask.yaml',),
+    #     'overrides': ('--model.init_args.has_color_output', 'True'),
+    # },
+    {   # Asymmetric Dual-Stream architecture
+        'name': 'ipes_cnn_v2_nosundir', # ipes_cnn_hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned_mask_noaug with new CNN architecture
+        'configs': make_configs(
+            loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned', augmentation='disabled') + ('configs/inputs/mask.yaml',),
+    },
+    {   # Asymmetric Dual-Stream architecture, extra data ablation
+        'name': 'ipes_cnn_v2_extra_data_nosundir',
+        'configs': make_configs(
+            loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned', augmentation='disabled') + ('configs/datasets/train_allstar.yaml', 'configs/inputs/mask.yaml'),
+    },
     # {  # baseline
     #     'name': 'ipes_cnn_rgb',
     #     'configs': make_configs(),
@@ -80,11 +116,6 @@ RUN_SPECS = (
     #     'configs': make_configs(
     #         loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned', augmentation='disabled') + ('configs/inputs/mask.yaml',),
     # },
-    {   # Asymmetric Dual-Stream architecture
-        'name': 'ipes_cnn_v2', # ipes_cnn_hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned_mask_noaug with new CNN architecture
-        'configs': make_configs(
-            loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned', augmentation='disabled') + ('configs/inputs/mask.yaml',),
-    },
     # {   # Fully Independent Streams
     #     'name': 'ipes_cnn_v3', # ipes_cnn_hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned_mask_noaug with new CNN architecture
     #     'configs': make_configs(
@@ -226,12 +257,13 @@ def emit_cmd(argv, cmd=None):
     cli_main()
 
 
-def build_common_prefix(stage_name, name, config_paths):
+def build_common_prefix(stage_name, name, config_paths, overrides=()):
     return [
         'ipes.py',
         stage_name,
         *build_config_args(config_paths),
         '--model.init_args.name', name,
+        *overrides,
         '--trainer.default_root_dir', f'models/{name}',
         *trainer_runtime_args(),
     ]
@@ -239,7 +271,7 @@ def build_common_prefix(stage_name, name, config_paths):
 
 def build_fit_argv(spec):
     return [
-        *build_common_prefix('fit', spec['name'], spec['configs']),
+        *build_common_prefix('fit', spec['name'], spec['configs'], spec.get('overrides', ())),
     ]
 
 
@@ -249,7 +281,7 @@ def build_stage_argv(stage_name, spec, dataset, input_template):
     ) if stage_name == 'predict' else ()
     
     return [
-        *build_common_prefix(stage_name, spec['name'], spec['configs']),
+        *build_common_prefix(stage_name, spec['name'], spec['configs'], spec.get('overrides', ())),
         '--data.init_args.in_file', input_template.format(dataset=dataset),
         '--ckpt_path', f'models/{spec["name"]}/alpha/checkpoints/last.ckpt',
         *overrides,
