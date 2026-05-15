@@ -10,8 +10,8 @@ in_path = r'./results/'
 
 datasets = [
     'ca_13', 
-    # 'swisssurface3d', 'Bund_BoraPk', 'ID15_Bunds', 'NZ23_Gisborne_subsets_BF44',
-    # 'NZ23_Gisborne_subsets_BG41_0to23', 'NZ23_Gisborne_subsets_BG41_24to50',
+    'swisssurface3d', 'Bund_BoraPk', 'ID15_Bunds', 'NZ23_Gisborne_subsets_BF44',
+    'NZ23_Gisborne_subsets_BG41_0to23', 'NZ23_Gisborne_subsets_BG41_24to50',
     # 'notoeast1', 'sitn',
             ]
 
@@ -23,6 +23,7 @@ runs = [
     # 'ipes_cnn_allstar', 'ipes_unet', 'ipes_rast',
     # 'ipes_interp_cubic', 'ipes_interp_linear', 'ipes_interp_rast_hqsplat_mean',
         ]
+
 
 METRIC_SPECS = [
     ('hm_rmse_ms_mean', 'hm_rmse_ms', False),
@@ -59,9 +60,9 @@ print(header_joined)
 # image stitching config
 image_rel_dir = os.path.join('laz_minimal', 'test', '00_hm_rgb_fig_input')
 image_file_names = [
-    'ca_13_0_10_b0_00_hm_rgb_fig_input.png',
-    'ca_13_10_20_b0_00_hm_rgb_fig_input.png',
-    'ca_13_20_30_b0_00_hm_rgb_fig_input.png',
+    '{dataset}_0_10_b0_00_hm_rgb_fig_input.png',
+    '{dataset}_10_20_b0_00_hm_rgb_fig_input.png',
+    '{dataset}_20_30_b0_00_hm_rgb_fig_input.png',
 ]
 
 
@@ -395,7 +396,7 @@ for dataset in datasets:
 # build labeled patch comparison images per dataset
 run_dirs = sorted([d for d in os.listdir(in_path) if os.path.isdir(os.path.join(in_path, d))])
 for dataset in datasets:
-    dataset_image_files = [f for f in image_file_names if f.startswith(dataset + '_')]
+    dataset_image_files = [f.format(dataset=dataset) for f in image_file_names]
     if len(dataset_image_files) == 0:
         print(f'No image file pattern configured for dataset {dataset}')
         continue

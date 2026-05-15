@@ -155,21 +155,21 @@ class IpesBase(BaseModule):
 
         hm_target_ps = batch['hm_gt_ps'].detach()
         hm_target_ps_flat = hm_target_ps.flatten()
-        hm_target_ms = batch['hm_gt_ms'].detach().flatten()
+        hm_target_ms_flat = batch['hm_gt_ms'].detach().flatten()
 
         hm_target_ps_nan = torch.isnan(hm_target_ps_flat)
         hm_pred_ps_nan = torch.isnan(pred_hm_ps_flat)
         hm_nan = torch.logical_or(hm_target_ps_nan, hm_pred_ps_nan)
 
-        # pred_hm_ps_no_nan = pred_hm_ps[~hm_nan]
+        pred_hm_ps_no_nan = pred_hm_ps_flat[~hm_nan]
         pred_hm_ms_no_nan = pred_hm_ms_flat[~hm_nan]
-        # height_target_ps_no_nan = hm_target_ps[~hm_nan]
-        height_target_ms_no_nan = hm_target_ms[~hm_nan]
+        height_target_ps_no_nan = hm_target_ps_flat[~hm_nan]
+        height_target_ms_no_nan = hm_target_ms_flat[~hm_nan]
 
-        # hm_e_ps = pred_hm_ps_no_nan - height_target_ps_no_nan
+        hm_e_ps = pred_hm_ps_no_nan - height_target_ps_no_nan
         hm_e_ms = pred_hm_ms_no_nan - height_target_ms_no_nan
 
-        # hm_rmse_ps = torch.sqrt(torch.mean(torch.square(hm_e_ps)))
+        hm_rmse_ps = torch.sqrt(torch.mean(torch.square(hm_e_ps)))
         hm_rmse_ms = torch.sqrt(torch.mean(torch.square(hm_e_ms)))
 
         from source.base.metrics import gradient_rmse, lpips
@@ -181,7 +181,7 @@ class IpesBase(BaseModule):
             
         eval_dict = {
             'hm_rmse_ms': hm_rmse_ms,
-            #  'hm_rmse_ps': hm_rmse_ps,
+            'hm_rmse_ps': hm_rmse_ps,  # need this for the scheduler
             'hm_gradient_rmse': hm_gradient_rmse,
             # 'hm_lpips': hm_lpips,
         }
@@ -272,7 +272,7 @@ class IpesBase(BaseModule):
         # that monitor validation metrics (e.g. ReduceLROnPlateau) can access them.
         # we can't use the learned weights for this because they are not stable
         # therefore, we use a simple sum of the most important loss components, which is the height RMSE and RGB RMSE
-        scheduler_target_loss = metrics_dict['hm_rmse_ms'] + (metrics_dict['rgb_rmse'] if 'rgba_rmse' in metrics_dict else 0.0)
+        scheduler_target_loss = metrics_dict['hm_rmse_ps'] + (metrics_dict['rgb_rmse'] if 'rgba_rmse' in metrics_dict else 0.0)
         self.log('epoch/sched_target', scheduler_target_loss, on_step=False, on_epoch=True,
                  logger=True, batch_size=batch['pts_query_ms'].shape[0])
         
@@ -322,7 +322,7 @@ class IpesBase(BaseModule):
             metrics_keys_to_log=frozenset(metrics_keys_to_log))
 
         hm_rmse_ms_mean = metrics[metrics_keys_to_log.index('hm_rmse_ms')]
-        self.log('epoch/test/RMSE_ms', hm_rmse_ms_mean, on_step=False, on_epoch=True, logger=True)
+        # self.log('epoch/test/RMSE_ms', hm_rmse_ms_mean, on_step=False, on_epoch=True, logger=True)  # avoid overwrite of train run
         print('\nTest results (mean): Loss={}, RMSE_ms={}'.format(
             loss_total_mean, hm_rmse_ms_mean))
 

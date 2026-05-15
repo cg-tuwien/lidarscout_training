@@ -292,7 +292,7 @@ class IpesRgbd(IpesBase):
             metrics_keys_to_log=metrics_keys_to_log, low_metrics_better=low_metrics_better)
 
         hm_rmse_ms_mean = metrics[metrics_keys_to_log.index('hm_rmse_ms')]
-        self.log('epoch/test/RMSE_ms', hm_rmse_ms_mean, on_step=False, on_epoch=True, logger=True)
+        # self.log('epoch/test/RMSE_ms', hm_rmse_ms_mean, on_step=False, on_epoch=True, logger=True)  # avoid overwrite of train run
         hm_gradient_rmse_mean = metrics[metrics_keys_to_log.index('hm_gradient_rmse')]
         # hm_lpips_mean = metrics[metrics_keys_to_log.index('hm_lpips')]
         log_str = (

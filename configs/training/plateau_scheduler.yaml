@@ -4,8 +4,7 @@ lr_scheduler:
     monitor: epoch/sched_target
     mode: min
     factor: 0.1
-    patience: 3
-    min_lr: 1e-6
+    patience: 5
 
 trainer:
   callbacks:
@@ -17,7 +16,7 @@ trainer:
     init_args:
       monitor: epoch/sched_target
       mode: min
-      patience: 10
+      patience: 15
       strict: True
   - class_path: source.cli.TorchScriptModelCheckpoint
     init_args:

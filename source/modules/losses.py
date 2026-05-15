@@ -334,18 +334,67 @@ class LossMixer(pl.LightningModule):
             weights_tensor = torch.tensor(weights, dtype=torch.float32)
             self.register_buffer('constant_weights', weights_tensor)
 
+    def _compute_void_penalty(self, pred: torch.Tensor, global_valid_mask: torch.Tensor, weight: float = 0.1) -> torch.Tensor:
+        invalid_mask = ~global_valid_mask
+        
+        # We only care about applying this to RGB to fix the rainbow resonance.
+        # Heightmaps naturally ignore the void via the standard loss mask.
+        if invalid_mask.any() and pred.shape[1] >= 3:
+            
+            # Extract just the RGB channels
+            if pred.shape[1] == 4:     # Dual Stream (1 HM + 3 RGB)
+                pred_rgb = pred[:, 1:4]
+            else:                      # Pure RGB Ablation
+                pred_rgb = pred
+                
+            # Expand the mask to match the 3 RGB channels [B, 3, H, W]
+            inv_mask_rgb = invalid_mask.expand(-1, 3, -1, -1)
+            
+            # Force RGB void to neutral gray (0.5)
+            anchor_rgb = torch.full_like(pred_rgb, 0.5)
+            
+            # Calculate the L2 penalty strictly inside the RGB void
+            void_mse = torch.nn.functional.mse_loss(pred_rgb[inv_mask_rgb], anchor_rgb[inv_mask_rgb])
+            
+            return weight * void_mse
+            
+        return torch.tensor(0.0, dtype=pred.dtype, device=pred.device)
+        
+    
     def forward(self, pred: torch.Tensor, batch: dict, model=None):
+        global_valid_mask = None
+        
+        # ==========================================
+        # 1. PROCESS THE MASK ONCE
+        # ==========================================
+        if self.use_valid_pixel_mask and self.valid_pixel_mask_key in batch:
+            global_valid_mask = batch[self.valid_pixel_mask_key]
+            if global_valid_mask.ndim == 3:
+                global_valid_mask = global_valid_mask.unsqueeze(1)
+                
+            target_hw = (pred.shape[-2], pred.shape[-1])
+            global_valid_mask = _center_crop_spatial_tensor(global_valid_mask, target_hw)
+            global_valid_mask = global_valid_mask.to(dtype=pred.dtype, device=pred.device) > 0.5
+            
+        # ==========================================
+        # 2. CALCULATE RGB VOID PENALTY
+        # ==========================================
+        void_penalty = 0.0
+        if global_valid_mask is not None:
+            void_penalty = self._compute_void_penalty(pred, global_valid_mask)
+
+        # ==========================================
+        # 3. PROCESS STANDARD LOSSES
+        # ==========================================
         loss_maps = []
         loss_means = []
 
         for loss_module in self.losses:
             loss_map = loss_module(pred, batch, model=model)
             target = loss_module._get_target(batch)
-            if self.use_valid_pixel_mask and self.valid_pixel_mask_key in batch:
-                valid_mask = batch[self.valid_pixel_mask_key]
-                if valid_mask.ndim == 3:
-                    valid_mask = valid_mask.unsqueeze(1)
-                valid_mask = valid_mask.to(dtype=loss_map.dtype, device=loss_map.device) > 0.5
+            
+            if global_valid_mask is not None:
+                valid_mask = global_valid_mask
             else:
                 valid_mask = loss_module._get_valid_mask(batch, target)
 
@@ -358,21 +407,26 @@ class LossMixer(pl.LightningModule):
 
         loss_means_tensor = torch.stack(loss_means)
         
+        # ==========================================
+        # 4. APPLY UNCERTAINTY WEIGHTING
+        # ==========================================
         if self.learned_weights:
-            # Calculate precision: exp(-log_var)
             precision = torch.exp(-self.log_vars)
-            # The uncertainty weighting formula: (1/sigma^2) * Loss + log(sigma)
-            # We use 0.5 * precision to match standard math, but it works without the 0.5 constant too.
             weighted_losses = precision * loss_means_tensor + self.log_vars
             total_loss = torch.sum(weighted_losses)
             
-            # Log the active weight multiplier (precision) for validation tracking
+            # Add the pure RGB regularizer AFTER the math is done
+            if void_penalty > 0:
+                total_loss = total_loss + void_penalty
+                
             if model is not None and not model.training:
                 for idx, component_name in enumerate(self.component_names):
                     model.log(f'loss/weights/{component_name}', precision[idx], on_step=False, on_epoch=True)
         else:
             weights = self.constant_weights.to(loss_means_tensor.device)
             total_loss = torch.sum(loss_means_tensor * weights)
+            if void_penalty > 0:
+                total_loss = total_loss + void_penalty
 
         loss_maps_tensor = torch.stack(loss_maps)
         return total_loss, loss_means_tensor, loss_maps_tensor
