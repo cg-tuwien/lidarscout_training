@@ -38,156 +38,156 @@ class IpesRgbd(IpesBase):
         # self.rgb_grad_loss_weight = nn.Parameter(torch.zeros(1))
         
 
-    def compute_loss_rgb_sparse(self, pred, batch_data):
-        # 'works' with only query points, no GT RGB maps necessary
-        # ignore predictions without GT RGB
-        # zero loss if there is no RGB
+    # def compute_loss_rgb_sparse(self, pred, batch_data):
+    #     # 'works' with only query points, no GT RGB maps necessary
+    #     # ignore predictions without GT RGB
+    #     # zero loss if there is no RGB
 
-        def weighted_sum_filter(rgb_pts: torch.Tensor):
-            rgb_pts[torch.isnan(rgb_pts)] = 0.0
+    #     def weighted_sum_filter(rgb_pts: torch.Tensor):
+    #         rgb_pts[torch.isnan(rgb_pts)] = 0.0
 
-            rgb_sum = _blur_rgb_pts(rgb_pts)
+    #         rgb_sum = _blur_rgb_pts(rgb_pts)
 
-            rgb_weights = rgb_pts.clone()
-            rgb_weights[rgb_weights != 0.0] = 1.0
-            rgb_weights = _blur_rgb_pts(rgb_weights)
-            return rgb_sum / rgb_weights
+    #         rgb_weights = rgb_pts.clone()
+    #         rgb_weights[rgb_weights != 0.0] = 1.0
+    #         rgb_weights = _blur_rgb_pts(rgb_weights)
+    #         return rgb_sum / rgb_weights
 
-        def _blur_rgb_pts(rgb_pts: torch.Tensor):
-            # blur RGB points
-            # rgb_pts: (B, 3, H, W)
-            # return: (B, 3, H, W)
-            kernel = torch.ones(size=(3, 3, 3, 3), device=rgb_pts.device)
-            rgb_pts_shape = rgb_pts.shape
-            rgb_pts_shape_flat = (rgb_pts_shape[0] * rgb_pts_shape[1],) + rgb_pts_shape[2:]
-            rgb_pts_flat = rgb_pts.view(rgb_pts_shape_flat)
-            rgb_pts_blurred = nn.functional.conv2d(rgb_pts_flat, kernel, padding=1)
-            return rgb_pts_blurred.view(rgb_pts_shape)
+    #     def _blur_rgb_pts(rgb_pts: torch.Tensor):
+    #         # blur RGB points
+    #         # rgb_pts: (B, 3, H, W)
+    #         # return: (B, 3, H, W)
+    #         kernel = torch.ones(size=(3, 3, 3, 3), device=rgb_pts.device)
+    #         rgb_pts_shape = rgb_pts.shape
+    #         rgb_pts_shape_flat = (rgb_pts_shape[0] * rgb_pts_shape[1],) + rgb_pts_shape[2:]
+    #         rgb_pts_flat = rgb_pts.view(rgb_pts_shape_flat)
+    #         rgb_pts_blurred = nn.functional.conv2d(rgb_pts_flat, kernel, padding=1)
+    #         return rgb_pts_blurred.view(rgb_pts_shape)
 
-        rgb_target = weighted_sum_filter(batch_data['patch_rgb_rasterize'].clone().detach())
-        target_size = pred.shape[-1]
-        interp_size = rgb_target.shape[-1]
-        diff = (interp_size - target_size) // 2  # slice center
-        rgb_target = rgb_target[..., diff:diff + target_size, diff:diff + target_size]
+    #     rgb_target = weighted_sum_filter(batch_data['patch_rgb_rasterize'].clone().detach())
+    #     target_size = pred.shape[-1]
+    #     interp_size = rgb_target.shape[-1]
+    #     diff = (interp_size - target_size) // 2  # slice center
+    #     rgb_target = rgb_target[..., diff:diff + target_size, diff:diff + target_size]
 
-        unknown_mask = torch.isnan(rgb_target)
-        rgb_target[unknown_mask] = 0.0
-        rgb_loss = nn.functional.mse_loss(input=pred, target=rgb_target, reduction='none')
-        rgb_loss[unknown_mask] = 0.0  # ignore nan (unknown GT)
-        rgb_loss = rgb_loss.sum(2)  # sum over RGB channels
+    #     unknown_mask = torch.isnan(rgb_target)
+    #     rgb_target[unknown_mask] = 0.0
+    #     rgb_loss = nn.functional.mse_loss(input=pred, target=rgb_target, reduction='none')
+    #     rgb_loss[unknown_mask] = 0.0  # ignore nan (unknown GT)
+    #     rgb_loss = rgb_loss.sum(2)  # sum over RGB channels
 
-        # scale mean to 1.0
-        num_valid = torch.sum(~unknown_mask)
-        if num_valid == 0:  # avoid div by zero
-            return rgb_loss
-        num_possible = rgb_target.numel()
-        scaling_factor = num_possible / num_valid
-        rgb_loss = rgb_loss * scaling_factor
-        rgb_loss = torch.clip(rgb_loss, min=0.0, max=1.0)
-        return rgb_loss
+    #     # scale mean to 1.0
+    #     num_valid = torch.sum(~unknown_mask)
+    #     if num_valid == 0:  # avoid div by zero
+    #         return rgb_loss
+    #     num_possible = rgb_target.numel()
+    #     scaling_factor = num_possible / num_valid
+    #     rgb_loss = rgb_loss * scaling_factor
+    #     rgb_loss = torch.clip(rgb_loss, min=0.0, max=1.0)
+    #     return rgb_loss
 
-    @staticmethod
-    def compute_loss_rgb(pred, batch_data):
-        rgb_target = batch_data['rgb_gt']
-        unknown_mask = torch.isnan(rgb_target)
-        rgb_target_safe = torch.nan_to_num(rgb_target, nan=0.0)
-        rgb_loss = nn.functional.mse_loss(input=pred, target=rgb_target_safe, reduction='none')
-        rgb_loss[unknown_mask] = 0.0  # ignore nan (unknown GT)
-        rgb_loss = torch.clip(rgb_loss, min=0.0, max=1.0)
-        rgb_loss = rgb_loss.sum(1)  # sum over RGB channels
-        return rgb_loss
+    # @staticmethod
+    # def compute_loss_rgb(pred, batch_data):
+    #     rgb_target = batch_data['rgb_gt']
+    #     unknown_mask = torch.isnan(rgb_target)
+    #     rgb_target_safe = torch.nan_to_num(rgb_target, nan=0.0)
+    #     rgb_loss = nn.functional.mse_loss(input=pred, target=rgb_target_safe, reduction='none')
+    #     rgb_loss[unknown_mask] = 0.0  # ignore nan (unknown GT)
+    #     rgb_loss = torch.clip(rgb_loss, min=0.0, max=1.0)
+    #     rgb_loss = rgb_loss.sum(1)  # sum over RGB channels
+    #     return rgb_loss
     
-    @staticmethod
-    def compute_loss_rgb_seam(pred: torch.Tensor, batch_data: dict, fall_off_factor=5.0):
+    # @staticmethod
+    # def compute_loss_rgb_seam(pred: torch.Tensor, batch_data: dict, fall_off_factor=5.0):
 
-        loss_rgb = IpesRgbd.compute_loss_rgb(pred, batch_data)
+    #     loss_rgb = IpesRgbd.compute_loss_rgb(pred, batch_data)
             
-        # higher loss weights near border
-        res = loss_rgb.shape[2]  # assume square
-        pixel_coords_x = torch.arange(res, device=loss_rgb.device)
-        pixel_coords_y = torch.arange(res, device=loss_rgb.device)
-        pixel_coords_x, pixel_coords_y = torch.meshgrid(pixel_coords_x, pixel_coords_y, indexing='xy')
-        center = (res - 1) / 2  # consider zero-based indexing
-        distances = torch.abs(pixel_coords_x - center) + torch.abs(pixel_coords_y - center)  # L1 norm
-        dist_norm = distances / res  # normalize to 0..1
-        dist_norm = torch.maximum(dist_norm * fall_off_factor, torch.zeros_like(dist_norm))
-        sum_to_one_factor = dist_norm.numel() / torch.sum(dist_norm)
-        dist_norm = dist_norm * sum_to_one_factor  # normalize so that the sum of weights is 1 per pixel
+    #     # higher loss weights near border
+    #     res = loss_rgb.shape[2]  # assume square
+    #     pixel_coords_x = torch.arange(res, device=loss_rgb.device)
+    #     pixel_coords_y = torch.arange(res, device=loss_rgb.device)
+    #     pixel_coords_x, pixel_coords_y = torch.meshgrid(pixel_coords_x, pixel_coords_y, indexing='xy')
+    #     center = (res - 1) / 2  # consider zero-based indexing
+    #     distances = torch.abs(pixel_coords_x - center) + torch.abs(pixel_coords_y - center)  # L1 norm
+    #     dist_norm = distances / res  # normalize to 0..1
+    #     dist_norm = torch.maximum(dist_norm * fall_off_factor, torch.zeros_like(dist_norm))
+    #     sum_to_one_factor = dist_norm.numel() / torch.sum(dist_norm)
+    #     dist_norm = dist_norm * sum_to_one_factor  # normalize so that the sum of weights is 1 per pixel
 
-        # repeat for batch dimension
-        dist_norm_bc = dist_norm[None].expand_as(loss_rgb)  # [b, rgb, res, res]
+    #     # repeat for batch dimension
+    #     dist_norm_bc = dist_norm[None].expand_as(loss_rgb)  # [b, rgb, res, res]
 
-        rgb_seam_loss = loss_rgb * dist_norm_bc
-        return rgb_seam_loss
+    #     rgb_seam_loss = loss_rgb * dist_norm_bc
+    #     return rgb_seam_loss
 
-    @staticmethod
-    def compute_loss_rgb_huber(pred, batch_data):
-        rgb_target = batch_data['rgb_gt'].clone()
-        unknown_mask = torch.isnan(rgb_target)
-        rgb_target[unknown_mask] = 0.0
-        rgb_loss = nn.functional.huber_loss(input=pred, target=rgb_target, reduction='none')
-        rgb_loss[unknown_mask] = 0.0  # ignore nan (unknown GT)
-        rgb_loss = torch.clip(rgb_loss, min=0.0, max=1.0)
-        rgb_loss = rgb_loss.sum(1)  # sum over RGB channels
-        return rgb_loss
+    # @staticmethod
+    # def compute_loss_rgb_huber(pred, batch_data):
+    #     rgb_target = batch_data['rgb_gt'].clone()
+    #     unknown_mask = torch.isnan(rgb_target)
+    #     rgb_target[unknown_mask] = 0.0
+    #     rgb_loss = nn.functional.huber_loss(input=pred, target=rgb_target, reduction='none')
+    #     rgb_loss[unknown_mask] = 0.0  # ignore nan (unknown GT)
+    #     rgb_loss = torch.clip(rgb_loss, min=0.0, max=1.0)
+    #     rgb_loss = rgb_loss.sum(1)  # sum over RGB channels
+    #     return rgb_loss
 
-    @staticmethod
-    def compute_loss_rgb_l1(pred, batch_data):
-        rgb_target = batch_data['rgb_gt'].clone()
-        unknown_mask = torch.isnan(rgb_target)
-        rgb_target[unknown_mask] = pred[unknown_mask]
-        rgb_loss = nn.functional.l1_loss(input=pred, target=rgb_target, reduction='none')
-        rgb_loss = rgb_loss.sum(1)  # sum over RGB channels
-        return rgb_loss
+    # @staticmethod
+    # def compute_loss_rgb_l1(pred, batch_data):
+    #     rgb_target = batch_data['rgb_gt'].clone()
+    #     unknown_mask = torch.isnan(rgb_target)
+    #     rgb_target[unknown_mask] = pred[unknown_mask]
+    #     rgb_loss = nn.functional.l1_loss(input=pred, target=rgb_target, reduction='none')
+    #     rgb_loss = rgb_loss.sum(1)  # sum over RGB channels
+    #     return rgb_loss
 
-    @staticmethod
-    def compute_loss_rgb_lpips(pred, batch_data):
-        from source.base.metrics import lpips
-        rgb_target = batch_data['rgb_gt'].clone()
-        unknown_mask = torch.isnan(rgb_target)
-        rgb_target[unknown_mask] = pred[unknown_mask]
-        rgb_loss = lpips(prediction=pred, target=rgb_target, net_type='alex')
+    # @staticmethod
+    # def compute_loss_rgb_lpips(pred, batch_data):
+    #     from source.base.metrics import lpips
+    #     rgb_target = batch_data['rgb_gt'].clone()
+    #     unknown_mask = torch.isnan(rgb_target)
+    #     rgb_target[unknown_mask] = pred[unknown_mask]
+    #     rgb_loss = lpips(prediction=pred, target=rgb_target, net_type='alex')
 
-        # broadcast to input B,H,W size
-        b = rgb_loss.shape[0]
-        h = rgb_target.shape[2]
-        w = rgb_target.shape[3]
-        rgb_loss = rgb_loss[:, None, None].broadcast_to((b, h, w))
-        return rgb_loss
+    #     # broadcast to input B,H,W size
+    #     b = rgb_loss.shape[0]
+    #     h = rgb_target.shape[2]
+    #     w = rgb_target.shape[3]
+    #     rgb_loss = rgb_loss[:, None, None].broadcast_to((b, h, w))
+    #     return rgb_loss
 
-    @staticmethod
-    def compute_loss_rgb_ssim(pred, batch_data):
-        from torchvision.transforms.functional import resize
-        from source.base.metrics import ssim as ssim_metric
-        rgb_target = batch_data['rgb_gt'].clone()
-        unknown_mask = torch.isnan(rgb_target)
-        rgb_target[unknown_mask] = pred[unknown_mask]
-        pred_resized = resize(pred, size=[256, 256], antialias=True)
-        rgb_target_resized = resize(rgb_target, size=[256, 256], antialias=True)
-        rgb_loss = 1.0 - ssim_metric(pred_resized, rgb_target_resized)
+    # @staticmethod
+    # def compute_loss_rgb_ssim(pred, batch_data):
+    #     from torchvision.transforms.functional import resize
+    #     from source.base.metrics import ssim as ssim_metric
+    #     rgb_target = batch_data['rgb_gt'].clone()
+    #     unknown_mask = torch.isnan(rgb_target)
+    #     rgb_target[unknown_mask] = pred[unknown_mask]
+    #     pred_resized = resize(pred, size=[256, 256], antialias=True)
+    #     rgb_target_resized = resize(rgb_target, size=[256, 256], antialias=True)
+    #     rgb_loss = 1.0 - ssim_metric(pred_resized, rgb_target_resized)
 
-        # broadcast to input B,H,W size
-        b = rgb_loss.shape[0]
-        h = rgb_target.shape[2]
-        w = rgb_target.shape[3]
-        rgb_loss = rgb_loss[:, None, None].broadcast_to((b, h, w))
-        return rgb_loss
+    #     # broadcast to input B,H,W size
+    #     b = rgb_loss.shape[0]
+    #     h = rgb_target.shape[2]
+    #     w = rgb_target.shape[3]
+    #     rgb_loss = rgb_loss[:, None, None].broadcast_to((b, h, w))
+    #     return rgb_loss
     
-    @staticmethod
-    def compute_loss_rgb_gradient(pred, batch_data):
-        from source.base.metrics import gradient_loss_masked
-        rgb_target = batch_data['rgb_gt'].clone()
-        rgb_gradient_loss = gradient_loss_masked(pred, rgb_target)
-        rgb_gradient_loss = torch.clip(rgb_gradient_loss, min=0.0, max=1.0)
-        rgb_gradient_loss = rgb_gradient_loss.sum(1)  # sum over RGB channels
-        return rgb_gradient_loss
+    # @staticmethod
+    # def compute_loss_rgb_gradient(pred, batch_data):
+    #     from source.base.metrics import gradient_loss_masked
+    #     rgb_target = batch_data['rgb_gt'].clone()
+    #     rgb_gradient_loss = gradient_loss_masked(pred, rgb_target)
+    #     rgb_gradient_loss = torch.clip(rgb_gradient_loss, min=0.0, max=1.0)
+    #     rgb_gradient_loss = rgb_gradient_loss.sum(1)  # sum over RGB channels
+    #     return rgb_gradient_loss
     
-    @staticmethod
-    def compute_loss_rgb_fft(pred, batch_data):
-        from source.base.metrics import fft_amplitude_loss
-        rgb_loss = fft_amplitude_loss(pred, batch_data['rgb_gt'].clone())
-        rgb_loss = torch.mean(rgb_loss, dim=1)  # mean over RGB channels
-        return rgb_loss
+    # @staticmethod
+    # def compute_loss_rgb_fft(pred, batch_data):
+    #     from source.base.metrics import fft_amplitude_loss
+    #     rgb_loss = fft_amplitude_loss(pred, batch_data['rgb_gt'].clone())
+    #     rgb_loss = torch.mean(rgb_loss, dim=1)  # mean over RGB channels
+    #     return rgb_loss
 
     @staticmethod
     def slice_center_rgb(img: torch.Tensor, res_out: int) -> torch.Tensor:

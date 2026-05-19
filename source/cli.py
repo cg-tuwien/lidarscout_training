@@ -71,6 +71,7 @@ class TorchScriptModelCheckpoint(ModelCheckpoint):
             return  # only save TorchScript model at the end of training
 
         network = trainer.lightning_module
+        network.eval()
 
         # does not work with LightningModule forward() having *args and **kwargs
         # net_ts = network.to_torchscript(model_script_path, method='script')

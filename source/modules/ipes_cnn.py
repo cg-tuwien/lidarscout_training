@@ -139,8 +139,8 @@ class IpesCnnNetwork(pl.LightningModule):
         )
 
         self.hm_decoder = _make_decoder(in_channels=latent_size * self.num_input_methods * 2, out_channels=1)
-
-        hm_residual_in = 1 + (1 * self.num_input_methods) # hm_pred + hm_inputs
+            
+        hm_residual_in = 1 + self.num_input_methods + 1  # hm_pred + hm_inputs + mask
         if self.use_sun_direction:
             hm_residual_in += 2
             
@@ -165,10 +165,10 @@ class IpesCnnNetwork(pl.LightningModule):
                     nn.ReLU(inplace=True),
                 )
                 rgb_decoder_in = latent_size * self.num_input_methods * 4 # 2x from RGB, 2x from detached HM
-                rgb_residual_in = 4 + (4 * self.num_input_methods) # pred_rgb(3) + pred_hm(1) + rgb_in(3*N) + hm_in(1*N)
+                rgb_residual_in = 4 + (4 * self.num_input_methods) + 1 # pred_rgb(3) + pred_hm(1) + rgb_in(3*N) + hm_in(1*N) + mask(1*N)
             else:
                 rgb_decoder_in = latent_size * self.num_input_methods * 2 # only gets detached HM features
-                rgb_residual_in = 4 + (1 * self.num_input_methods) # pred_rgb(3) + pred_hm(1) + hm_in(1*N)
+                rgb_residual_in = 4 + (1 * self.num_input_methods) + 1 # pred_rgb(3) + pred_hm(1) + hm_in(1*N) + mask(1*N)
 
             self.rgb_decoder = _make_decoder(in_channels=rgb_decoder_in, out_channels=3)
 
@@ -192,6 +192,15 @@ class IpesCnnNetwork(pl.LightningModule):
         hm_inputs = [batch['patch_hm_{}'.format(method)] for method in self.input_methods]
         rgb_inputs = []
         sun_pos_xy = batch['sun_pos_xy']
+        
+        # Extract and prepare the global 96x96 mask for the forward pass
+        # We use a default fallback of ones if the mask isn't present in a dataset
+        if 'patch_hm_mask' in batch:
+            fwd_mask = batch['patch_hm_mask'].to(dtype=hm_inputs[0].dtype, device=hm_inputs[0].device)
+            if fwd_mask.ndim == 3:
+                fwd_mask = fwd_mask.unsqueeze(1)
+        else:
+            fwd_mask = torch.ones_like(hm_inputs[0])
 
         for hm_input in hm_inputs:
             self._replace_nan_(hm_input, 0.0)
@@ -220,7 +229,7 @@ class IpesCnnNetwork(pl.LightningModule):
 
         pred_hm_base = self.hm_decoder(hm_inputs_merged)
 
-        hm_res_inputs = [pred_hm_base] + hm_inputs
+        hm_res_inputs = [pred_hm_base] + hm_inputs + [fwd_mask]
         if self.use_sun_direction:
             hm_res_inputs.append(sun_dir_map)
         
@@ -251,9 +260,9 @@ class IpesCnnNetwork(pl.LightningModule):
 
         # The Bridge: RGB residual sees HM predictions, but gradients stop here
         if self.has_color_input:
-            rgb_res_inputs = [pred_hm_base.detach(), pred_rgb_base] + hm_inputs + rgb_inputs
+            rgb_res_inputs = [pred_hm_base.detach(), pred_rgb_base] + hm_inputs + rgb_inputs + [fwd_mask]
         else:
-            rgb_res_inputs = [pred_hm_base.detach(), pred_rgb_base] + hm_inputs
+            rgb_res_inputs = [pred_hm_base.detach(), pred_rgb_base] + hm_inputs + [fwd_mask]
             
         if self.use_sun_direction:
             rgb_res_inputs.append(sun_dir_map)

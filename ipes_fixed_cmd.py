@@ -71,13 +71,28 @@ RUN_SPECS = (
     #     'configs': make_configs(
     #         loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned'),
     # },
+    {   # Asymmetric Dual-Stream architecture, best so far
+        'name': 'ipes_cnn_v2_voidloss_arch2', # ipes_cnn_hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned_mask_noaug with new CNN architecture
+        'configs': make_configs(
+            loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned'),
+    },
     # {   # Asymmetric Dual-Stream architecture, slightly better PSNR but worse LPIPS
     #     'name': 'ipes_cnn_v2_norgbgrad', # ipes_cnn_hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned_mask_noaug with new CNN architecture
     #     'configs': make_configs(
     #         loss='hm_mse_radient_rgb_mse_lpips_learned'),
     # },
+    # {   # Asymmetric Dual-Stream architecture, extra data ablation
+    #     'name': 'ipes_cnn_v2_extra_data_voidloss', # ipes_cnn_hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned_mask_noaug with new CNN architecture
+    #     'configs': make_configs(
+    #         loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned', dataset='train_allstar'),
+    # },
+    # {   # Asymmetric Dual-Stream architecture, extra data ablation
+    #     'name': 'ipes_cnn_v2_extra_data_voidloss', # ipes_cnn_hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned_mask_noaug with new CNN architecture
+    #     'configs': make_configs(
+    #         loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned', dataset='train_allstar'),
+    # },
     {   # Asymmetric Dual-Stream architecture, extra data ablation
-        'name': 'ipes_cnn_v2_extra_data_voidloss', # ipes_cnn_hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned_mask_noaug with new CNN architecture
+        'name': 'ipes_cnn_v2_extra_data_voidloss_arch2', # ipes_cnn_hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned_mask_noaug with new CNN architecture
         'configs': make_configs(
             loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned', dataset='train_allstar'),
     },
@@ -201,7 +216,7 @@ def build_stage_argv(stage_name, spec, dataset, input_template):
 
 def iter_run_argvs():
     for spec in RUN_SPECS:
-        yield build_fit_argv(spec)
+        # yield build_fit_argv(spec)
 
         for dataset in COMMON_TEST_DATASETS:
             yield build_stage_argv('test', spec, dataset, 'datasets/laz_minimal/test_{dataset}.txt')

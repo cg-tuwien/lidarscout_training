@@ -339,9 +339,9 @@ def _get_metric_means(excel_file: str) -> typing.Dict[str, typing.Optional[float
         cell_vals_raw = [ws.cell(row=row_idx, column=col_id).value for row_idx in range(2, average_row)]
         cell_vals = [float(v) for v in cell_vals_raw if isinstance(v, (int, float, np.floating))]
 
-        # fix broken PSNR
+        # fix broken PSNR of earlier runs
         if metric_name == 'rgb_psnr':
-            cell_vals = [v - 48.131 if v > 30 else v for v in cell_vals]
+            cell_vals = [v - 48.131 if v > 50 else v for v in cell_vals]
 
         if len(cell_vals) == 0:
             means[mean_name] = None
