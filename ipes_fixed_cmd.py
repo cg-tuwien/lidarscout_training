@@ -66,6 +66,14 @@ def make_configs(
 
 
 RUN_SPECS = (
+    {   # Resume the best model for one more epoch to exercise last.pt export
+        'name': 'ipes_cnn_v2_voidloss_arch2_resume_1epoch',
+        'configs': make_configs(
+            loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned'),
+        'resume_ckpt_path': 'models/ipes_cnn_v2_voidloss_arch2/alpha/checkpoints/last.ckpt',
+        'fit_overrides': ('--trainer.max_epochs', '75'),
+        'resume_only': True,
+    },
     # {   # Asymmetric Dual-Stream architecture, best so far
     #     'name': 'ipes_cnn_v2_voidloss', # ipes_cnn_hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned_mask_noaug with new CNN architecture
     #     'configs': make_configs(
@@ -196,9 +204,16 @@ def build_common_prefix(stage_name, name, config_paths, overrides=()):
 
 
 def build_fit_argv(spec):
-    return [
+    argv = [
         *build_common_prefix('fit', spec['name'], spec['configs'], spec.get('overrides', ())),
     ]
+
+    resume_ckpt_path = spec.get('resume_ckpt_path')
+    if resume_ckpt_path:
+        argv.extend(['--ckpt_path', resume_ckpt_path])
+
+    argv.extend(spec.get('fit_overrides', ()))
+    return argv
 
 
 def build_stage_argv(stage_name, spec, dataset, input_template):
@@ -216,7 +231,10 @@ def build_stage_argv(stage_name, spec, dataset, input_template):
 
 def iter_run_argvs():
     for spec in RUN_SPECS:
-        # yield build_fit_argv(spec)
+        yield build_fit_argv(spec)
+
+        if spec.get('resume_only'):
+            continue
 
         for dataset in COMMON_TEST_DATASETS:
             yield build_stage_argv('test', spec, dataset, 'datasets/laz_minimal/test_{dataset}.txt')

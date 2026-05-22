@@ -61,14 +61,13 @@ class TorchScriptModelCheckpoint(ModelCheckpoint):
             enable_version_counter=enable_version_counter,
         )
 
-    def _save_last_checkpoint(self, trainer: "pl.Trainer", monitor_candidates: Dict[str, Tensor]) -> None:
+    def on_train_end(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
+        super().on_train_end(trainer, pl_module)
+
+        if not self.save_last or not trainer.is_global_zero:
+            return
+
         from source.base.fs import make_dir_for_file
-
-        # return  # disable overwriting for debugging
-        super()._save_last_checkpoint(trainer, monitor_candidates)
-
-        if trainer.current_epoch != trainer.max_epochs - 1:
-            return  # only save TorchScript model at the end of training
 
         network = trainer.lightning_module
         network.eval()
@@ -96,10 +95,10 @@ class TorchScriptModelCheckpoint(ModelCheckpoint):
             # example_inputs['patch_radius_hm_ms'] = torch.tensor(data=[678.8225], dtype=torch.float32)
             # example_inputs['numerical_stability_factor'] = torch.rand(1, )
 
-            # required for DCTNet  # TODO: DCTNet has no network.input_methods
             for m in network.input_methods:
                 example_inputs[f'patch_hm_{m}'] = torch.rand(2, 1, res, res)
                 example_inputs[f'patch_rgb_{m}'] = torch.rand(2, 3, res, res)
+            example_inputs[f'patch_hm_mask'] = torch.rand(2, 1, res, res)
             return example_inputs
 
         # model_script_path_onnx = os.path.join(self.dirpath, 'last.onnx')
