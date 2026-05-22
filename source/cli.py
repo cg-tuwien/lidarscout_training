@@ -64,9 +64,6 @@ class TorchScriptModelCheckpoint(ModelCheckpoint):
     def on_train_end(self, trainer: "pl.Trainer", pl_module: "pl.LightningModule") -> None:
         super().on_train_end(trainer, pl_module)
 
-        if not self.save_last or not trainer.is_global_zero:
-            return
-
         from source.base.fs import make_dir_for_file
 
         network = trainer.lightning_module
@@ -107,12 +104,6 @@ class TorchScriptModelCheckpoint(ModelCheckpoint):
         # #     file_path=model_script_path_onnx, input_sample=make_example_data())
         # from torch.onnx import dynamo_export  # new exporter supports control flow
         # dynamo_export(network, model_kwargs={'batch': make_example_data()}).save(model_script_path_onnx)
-
-        # save hyperparameters
-        model_hyperparams_path = os.path.join(self.dirpath, 'hyperparams.yaml')
-        print(f'\nSaving model hyperparameters to {model_hyperparams_path}')
-        make_dir_for_file(file=model_hyperparams_path)
-        network.save_hyperparameters(model_hyperparams_path)
 
         # trace and save model for libtorch
         model_script_path_libtorch = os.path.join(self.dirpath, 'last.pt')

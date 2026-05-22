@@ -191,7 +191,6 @@ class IpesCnnNetwork(pl.LightningModule):
     def forward(self, batch):
         hm_inputs = [batch['patch_hm_{}'.format(method)] for method in self.input_methods]
         rgb_inputs = []
-        sun_pos_xy = batch['sun_pos_xy']
         
         # Extract and prepare the global 96x96 mask for the forward pass
         # We use a default fallback of ones if the mask isn't present in a dataset
@@ -218,6 +217,7 @@ class IpesCnnNetwork(pl.LightningModule):
         ]
 
         if self.use_sun_direction:
+            sun_pos_xy = batch['sun_pos_xy']
             sun_dir_map = sun_pos_xy[:, :, None, None].expand(-1, -1, h, w)
 
         # ==========================================
