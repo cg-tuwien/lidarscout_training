@@ -183,11 +183,6 @@ class IpesCnnNetwork(pl.LightningModule):
                 nn.Conv2d(32, 3, kernel_size=9, padding=4),
             )
 
-    @staticmethod
-    def _replace_nan_(tensor: torch.Tensor, replace_val=0.5):
-        nan_mask = torch.isnan(tensor)
-        tensor[nan_mask] = replace_val  
-
     def forward(self, batch):
         hm_inputs = [batch['patch_hm_{}'.format(method)] for method in self.input_methods]
         rgb_inputs = []
@@ -201,13 +196,11 @@ class IpesCnnNetwork(pl.LightningModule):
         else:
             fwd_mask = torch.ones_like(hm_inputs[0])
 
-        for hm_input in hm_inputs:
-            self._replace_nan_(hm_input, 0.0)
+        hm_inputs = [torch.nan_to_num(hm_input, nan=0.0) for hm_input in hm_inputs]
 
         if self.has_color_input:
             rgb_inputs = [batch['patch_rgb_{}'.format(method)] for method in self.input_methods]
-            for rgb_input in rgb_inputs:
-                self._replace_nan_(rgb_input)
+            rgb_inputs = [torch.nan_to_num(rgb_input, nan=0.5) for rgb_input in rgb_inputs]
 
         b, _, h, w = hm_inputs[0].shape 
 

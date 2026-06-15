@@ -66,6 +66,11 @@ class TorchScriptModelCheckpoint(ModelCheckpoint):
 
         from source.base.fs import make_dir_for_file
 
+        # Force PyTorch to use deterministic kernels that support dynamic batch sizes
+        import torch
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.deterministic = True
+        
         network = trainer.lightning_module
         network.eval()
 
@@ -75,6 +80,10 @@ class TorchScriptModelCheckpoint(ModelCheckpoint):
         # save with tracing, need a training sample that will be traced through the forward pass
         def make_example_data():
             import torch
+            
+            # Trace with a batch size of 1 to prevent hardcoded multi-batch kernel optimizations
+            bs = 1
+        
             res = network.hm_interp_size
             example_inputs = dict()
 
@@ -93,9 +102,9 @@ class TorchScriptModelCheckpoint(ModelCheckpoint):
             # example_inputs['numerical_stability_factor'] = torch.rand(1, )
 
             for m in network.input_methods:
-                example_inputs[f'patch_hm_{m}'] = torch.rand(2, 1, res, res)
-                example_inputs[f'patch_rgb_{m}'] = torch.rand(2, 3, res, res)
-            example_inputs[f'patch_hm_mask'] = torch.rand(2, 1, res, res)
+                example_inputs[f'patch_hm_{m}'] = torch.rand(bs, 1, res, res)
+                example_inputs[f'patch_rgb_{m}'] = torch.rand(bs, 3, res, res)
+            example_inputs[f'patch_hm_mask'] = torch.rand(bs, 1, res, res)
             return example_inputs
 
         # model_script_path_onnx = os.path.join(self.dirpath, 'last.onnx')
