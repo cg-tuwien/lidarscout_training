@@ -9,6 +9,7 @@ from tqdm import tqdm
 
 from source.base.normalization import model_space_to_patch_space_list
 from source.base.point_cloud import pts_to_img_cached
+from source.dataloaders.ipes_data_loader import SHAPES_WITHOUT_VALID_RGB
 
 
 def _read_shape_list(shape_list_file: str) -> typing.List[str]:
@@ -79,7 +80,7 @@ def _chunk_points_and_rgb(dataset_dir: str, file_name: str) -> typing.Tuple[np.n
     has_colors = chunk_pts_all.shape[1] == 6
     chunk_pts_xyz = chunk_pts_all[:, :3]
     chunk_pts_rgb = chunk_pts_all[:, 3:6] if has_colors else np.full(chunk_pts_xyz.shape, np.nan)
-    if file_name in ['swisssurface3d']:
+    if file_name in SHAPES_WITHOUT_VALID_RGB:
         chunk_pts_rgb = np.full(chunk_pts_xyz.shape, np.nan)
     chunk_pts_rgb = chunk_pts_rgb / 255.0
     return chunk_pts_xyz, chunk_pts_rgb

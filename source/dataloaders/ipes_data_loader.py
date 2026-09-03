@@ -8,6 +8,10 @@ from source.dataloaders.base_data_module import BaseDataModule, BaseDataset
 from source.base.math import hm_to_pts
 from source.base.normalization import hm_model_space_to_patch_space, hm_patch_space_to_model_space
 
+# shapes whose LAS RGB channel is present but known to be invalid/placeholder data, so it must
+# be forced to NaN instead of being used. Shared with source/dataloaders/img_cache_precompute.py.
+SHAPES_WITHOUT_VALID_RGB = frozenset({'swisssurface3d'})
+
 
 class IpesDataModule(BaseDataModule):
 
@@ -631,8 +635,8 @@ class IpesDataset(BaseDataset):
         chunk_pts_xyz = chunk_pts_all[:, :3]
         chunk_pts_rgb = chunk_pts_all[:, 3:6] if has_colors else np.full(chunk_pts_xyz.shape, np.nan)
 
-        # these have no valid RGB -> TODO: put in higher level parameter
-        if in_file_is_dataset(in_file) and pc_file_name in ['swisssurface3d']:
+        # these have no valid RGB (placeholder/garbage data despite having a color column)
+        if in_file_is_dataset(in_file) and pc_file_name in SHAPES_WITHOUT_VALID_RGB:
             chunk_pts_rgb = np.full(chunk_pts_xyz.shape, np.nan)
         chunk_pts_rgb = chunk_pts_rgb / 255.0  # normalize to [0, 1]
 
