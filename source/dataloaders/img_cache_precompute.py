@@ -146,6 +146,7 @@ def _task_worker(task: dict) -> typing.Tuple[str, int]:
                 resolution=hm_interp_size,
                 method=method,
                 cache_dir=cache_dir,
+                context_radius_factor=context_radius_factor,
             )
             render_count += 1
 
@@ -156,6 +157,7 @@ def _task_worker(task: dict) -> typing.Tuple[str, int]:
                 resolution=hm_interp_size,
                 method=method,
                 cache_dir=cache_dir,
+                context_radius_factor=context_radius_factor,
             )
             render_count += 1
 

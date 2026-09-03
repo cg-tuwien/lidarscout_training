@@ -120,9 +120,15 @@ class IpesImgDataset(IpesDataset):
 
         from source.dataloaders.base_data_module import get_dataset_dir
         cache_dir = os.path.join(get_dataset_dir(self.in_file), 'img_cache')
-        pts_to_img_cached_with_cache_dir = lambda pts_ps_xy, pts_data, resolution, method: pts_to_img_cached(
-            pts_ps_xy=pts_ps_xy, pts_data=pts_data, resolution=resolution, method=method, cache_dir=cache_dir)
-        pts_to_img_func = pts_to_img_cached_with_cache_dir if self.use_cache else pts_to_img
+        
+        pts_to_img_with_cache = lambda pts_ps_xy, pts_data, resolution, method: pts_to_img_cached(
+            pts_ps_xy=pts_ps_xy, pts_data=pts_data, resolution=resolution, method=method, cache_dir=cache_dir,
+            context_radius_factor=self.context_radius_factor)
+        pts_to_img_no_cache = lambda pts_ps_xy, pts_data, resolution, method: pts_to_img(
+            pts_ps_xy=pts_ps_xy, pts_data=pts_data, resolution=resolution, method=method,
+            context_radius_factor=self.context_radius_factor)
+        
+        pts_to_img_func = pts_to_img_with_cache if self.use_cache else pts_to_img_no_cache
 
         # add hms
         def _add_hms(shape_data):

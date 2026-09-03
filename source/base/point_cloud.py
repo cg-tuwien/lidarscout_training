@@ -92,27 +92,34 @@ def pts_to_img(
                 resolution=resolution, interp_method=interp_method, same_pixel_method=same_pixel_method)
     elif method == 'nearest':
         return interpolate_patch(
-            pts_ps_xy=pts_ps_xy, pts_data=pts_data, resolution=resolution, method='nearest')
+            pts_ps_xy=pts_ps_xy, pts_data=pts_data, resolution=resolution, method='nearest',
+            context_radius_factor=context_radius_factor)
     elif method == 'linear':
         return interpolate_patch(
-            pts_ps_xy=pts_ps_xy, pts_data=pts_data, resolution=resolution, method='linear')
+            pts_ps_xy=pts_ps_xy, pts_data=pts_data, resolution=resolution, method='linear',
+            context_radius_factor=context_radius_factor)
     elif method == 'cubic':
         return interpolate_patch(
-            pts_ps_xy=pts_ps_xy, pts_data=pts_data, resolution=resolution, method='cubic')
+            pts_ps_xy=pts_ps_xy, pts_data=pts_data, resolution=resolution, method='cubic',
+            context_radius_factor=context_radius_factor)
     elif method == 'barymax':
         return interpolate_patch_barymax(
-            pts_ps_xy=pts_ps_xy, pts_data=pts_data, resolution=resolution, method='barymax')
+            pts_ps_xy=pts_ps_xy, pts_data=pts_data, resolution=resolution, method='barymax',
+            context_radius_factor=context_radius_factor)
     elif method == 'mask':
         return rasterize_mask(
-            pts_ps_xy=pts_ps_xy, resolution=resolution,
-            context_radius_factor=context_radius_factor, border_pixels=border_pixels)
+            pts_ps_xy=pts_ps_xy, resolution=resolution, border_pixels=border_pixels,
+            context_radius_factor=context_radius_factor)
     elif method == 'knngauss':
-        return knn_gauss(pts_ps_xy=pts_ps_xy, pts_data=pts_data, res=resolution)
+        return knn_gauss(
+            pts_ps_xy=pts_ps_xy, pts_data=pts_data, res=resolution, context_radius_factor=context_radius_factor)
     else:
         raise ValueError(f'Unknown method: {method}')
 
 
-def pts_to_img_cached(pts_ps_xy: np.ndarray, pts_data: np.ndarray, resolution: int, method: str, cache_dir: str):
+def pts_to_img_cached(
+        pts_ps_xy: np.ndarray, pts_data: np.ndarray, resolution: int, method: str, cache_dir: str,
+        context_radius_factor=1.5):
     import os
     from source.base import fs
 
@@ -123,7 +130,10 @@ def pts_to_img_cached(pts_ps_xy: np.ndarray, pts_data: np.ndarray, resolution: i
         else:
             return np.full((pts_data.shape[1], resolution, resolution), np.nan)
 
-    input_hash = fs.md5(pts_ps_xy.tobytes()) + fs.md5(pts_data.tobytes()) + resolution + fs.str_to_consistent_hash(method)
+    # context_radius_factor is part of the cache key because it changes the patch scaling factor
+    # (see get_patch_scaling_factor) and therefore the resulting image, even for identical points
+    input_hash = (fs.md5(pts_ps_xy.tobytes()) + fs.md5(pts_data.tobytes()) + resolution
+                 + fs.str_to_consistent_hash(method) + fs.str_to_consistent_hash(str(context_radius_factor)))
     cache_file = os.path.join(cache_dir, '{}.npy'.format(input_hash))
 
     # killing the process may leave empty cache files
@@ -139,7 +149,8 @@ def pts_to_img_cached(pts_ps_xy: np.ndarray, pts_data: np.ndarray, resolution: i
                 pass
 
     fs.make_dir_for_file(cache_file)
-    img = pts_to_img(pts_ps_xy=pts_ps_xy, pts_data=pts_data, resolution=resolution, method=method)
+    img = pts_to_img(pts_ps_xy=pts_ps_xy, pts_data=pts_data, resolution=resolution, method=method,
+                     context_radius_factor=context_radius_factor)
     tmp_file = f'{cache_file}.tmp.{os.getpid()}'
     np.save(tmp_file, img)
     if not tmp_file.endswith('.npy'):
@@ -151,20 +162,20 @@ def pts_to_img_cached(pts_ps_xy: np.ndarray, pts_data: np.ndarray, resolution: i
 
 
 def rasterize_mask(
-        pts_ps_xy: np.ndarray, resolution: int,
-        context_radius_factor=1.5, border_pixels=16) -> np.ndarray:
-    from source.base.math import normalize_data
+        pts_ps_xy: np.ndarray, resolution: int, border_pixels=16, context_radius_factor=1.5) -> np.ndarray:
     from source.base.img import slice_img_center
 
-    resolution_border = resolution + 2 * border_pixels
-    scaling_factor = resolution / resolution_border
-    pts_ps_xy_norm = normalize_data(arr=pts_ps_xy * context_radius_factor * np.sqrt(2) * scaling_factor,
-                                    in_min=-1.0, in_max=1.0,
-                                    out_min=0, out_max=resolution_border - 1, clip=True)
+    valid = ~np.isnan(pts_ps_xy).any(axis=1)
+    pts_ps_xy = pts_ps_xy[valid]
 
-    pts_coo = np.round(pts_ps_xy_norm).astype(int)
+    resolution_border = resolution + 2 * border_pixels
     mask = np.zeros((resolution_border, resolution_border), dtype=np.float32)
-    if pts_coo.shape[0] > 0:
+
+    if pts_ps_xy.shape[0] > 0:
+        pts_ps_xy_scaled = pts_ps_xy * get_patch_scaling_factor(resolution, context_radius_factor)
+        pts_coo = np.round((pts_ps_xy_scaled + 0.5) * (resolution - 1)).astype(int)
+        in_grid = ((pts_coo >= 0) & (pts_coo < resolution)).all(axis=1)
+        pts_coo = pts_coo[in_grid] + border_pixels
         mask[pts_coo[:, 1], pts_coo[:, 0]] = 1.0
 
     mask = slice_img_center(mask, resolution_border, resolution)
@@ -304,23 +315,38 @@ def rasterize_pts(
     hm = slice_img_center(hm, resolution_border, resolution)
     return hm
 
-def get_magic_scaling_factor():
-    # might be related to pixel center vs corner
-    # TODO: find out why this is necessary, seems to come from the dataset generation
-    # magic_scaling_factor = 102/96  # RMSE 34.9
-    magic_scaling_factor = 103/96  # RMSE 34.26
-    # magic_scaling_factor = 104/96  # RMSE 35.35
-    return magic_scaling_factor
+def get_patch_scaling_factor(resolution: int, context_radius_factor: float) -> float:
+    """
+    Sparse points are normalized into patch space by dividing by a radius derived from the
+    patch square's diagonal (see `_get_patch_radius_p2` in ipes_data_loader.py):
+        patch_radius = 0.5 * sqrt(2) * meters_per_pixel * hm_res * context_radius_factor
+    so the square patch's edges land at ps = +-1 / (sqrt(2) * context_radius_factor), not at
+    the +-0.5 that `interpolate_patch`, `interpolate_patch_barymax`, `rasterize_mask`, and
+    `knn_gauss` assume when they build their output grid over [-0.5, 0.5]. This factor rescales
+    points so they exactly fill that grid -- the same correction `rasterize_pts` already applies
+    inline via `context_radius_factor * sqrt(2)`.
+
+    The extra `resolution / (resolution - 1)` term corrects for the mismatch between the
+    dataset generator's pixel-corner binning convention (`px = int(heightmapSize * u)`, see
+    main_create_training.cpp and the matching `texel_to_pts` in source/base/math.py, both of
+    which treat pixel index N-1 as one bin short of the far edge) and the pixel-center-inclusive
+    `np.mgrid(-0.5, 0.5, resolution)` grid used here, which places sample 0 and sample N-1 exactly
+    on the two edges. This was formerly hidden behind an empirically swept, undocumented
+    "magic_scaling_factor" (102/96, 103/96, 104/96); this formula reproduces the best of those
+    (103/96 for resolution=96, context_radius_factor=1.5) to within 0.1%, so it explains the
+    previously unexplained value instead of merely curve-fitting it.
+    """
+    return 0.5 * np.sqrt(2.0) * context_radius_factor * resolution / (resolution - 1)
 
 
-def interpolate_patch(pts_ps_xy, pts_data: np.ndarray, resolution, method='linear'):
+def interpolate_patch(pts_ps_xy, pts_data: np.ndarray, resolution, method='linear', context_radius_factor=1.5):
     from scipy.interpolate import griddata
 
     if pts_ps_xy.shape[0] < 3:
         print('WARNING: At least 3 points are required for triangulation')
         return np.zeros((resolution, resolution))
 
-    pts_ps_xy = pts_ps_xy * get_magic_scaling_factor()
+    pts_ps_xy = pts_ps_xy * get_patch_scaling_factor(resolution, context_radius_factor)
 
     # revert patch normalization
     steps = complex(0.0, resolution)  # special indexing for mgrid
@@ -341,7 +367,7 @@ def interpolate_patch(pts_ps_xy, pts_data: np.ndarray, resolution, method='linea
     return grid_z_ps_linear
 
 
-def interpolate_patch_barymax(pts_ps_xy, pts_data: np.ndarray, resolution, method='barymax'):
+def interpolate_patch_barymax(pts_ps_xy, pts_data: np.ndarray, resolution, method='barymax', context_radius_factor=1.5):
     """
     Interpolate by triangulation and return maximum barycentric coordinate for each pixel.
     
@@ -362,7 +388,7 @@ def interpolate_patch_barymax(pts_ps_xy, pts_data: np.ndarray, resolution, metho
         return np.full((resolution, resolution), np.nan, dtype=np.float32)
 
     # keep compatibility with interpolate_patch scaling
-    pts_ps_xy = np.asarray(pts_ps_xy, dtype=np.float64) * get_magic_scaling_factor()
+    pts_ps_xy = np.asarray(pts_ps_xy, dtype=np.float64) * get_patch_scaling_factor(resolution, context_radius_factor)
 
     tri = Delaunay(pts_ps_xy)
 
@@ -395,7 +421,8 @@ def interpolate_patch_barymax(pts_ps_xy, pts_data: np.ndarray, resolution, metho
     return max_bary_coords.reshape(resolution, resolution).T
 
 
-def knn_gauss(pts_ps_xy: np.ndarray, pts_data: np.ndarray, res: int, padding: int = 16, k=20):
+def knn_gauss(pts_ps_xy: np.ndarray, pts_data: np.ndarray, res: int, padding: int = 16, k=20,
+             context_radius_factor=1.5):
     # build kdtree for patch
     # get k NNs for each pixel
     # get weights with Gaussian
@@ -410,7 +437,7 @@ def knn_gauss(pts_ps_xy: np.ndarray, pts_data: np.ndarray, res: int, padding: in
         pts_data = np.expand_dims(pts_data, axis=1)
 
     res_padded = res + 2 * padding
-    scaling_factor = res_padded / res / get_magic_scaling_factor()
+    scaling_factor = res_padded / res / get_patch_scaling_factor(res, context_radius_factor)
     pts_ps_xy = pts_ps_xy * scaling_factor
     kdtree = KDTree(pts_ps_xy)
     grid_x, grid_y = np.mgrid[-1:1:complex(0.0, res_padded), -1:1:complex(0.0, res_padded)]
