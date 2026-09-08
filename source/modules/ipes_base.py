@@ -28,6 +28,9 @@ class IpesBase(BaseModule):
         self.regressor = self.make_regressor()
 
         self.predict_batch_size: int = predict_batch_size
+        # cross-predict_step accumulator for reconstruction chunks of the current point cloud --
+        # see predict_step's docstring
+        self._predict_accum: typing.Optional[dict] = None
         self.use_valid_pixel_mask = use_valid_pixel_mask
         self.valid_pixel_mask_key = valid_pixel_mask_key
         self.train_metrics_every_n_steps = max(1, int(train_metrics_every_n_steps))
@@ -371,11 +374,19 @@ class IpesBase(BaseModule):
         return batch
 
     def predict_step(self, batch: dict, batch_idx, dataloader_idx=0):
-        # reconstruct one point cloud
+        # Reconstruct one point cloud -- but each call only ever receives ONE small chunk of its
+        # reconstruction query grid (see IpesDataset._reconstruction_chunk_names /
+        # _make_rec_data), generated lazily by the dataloader rather than the whole grid's local
+        # point subsamples being resolved eagerly up front (that eager version crashed at
+        # ~19GB+ on a 100x-densified stress-test shape). So results are accumulated across calls
+        # in self._predict_accum, keyed by nothing but call order (one point cloud is always
+        # processed start-to-finish before the next, since chunks of the same point cloud are
+        # contiguous in the dataset) -- reset when a chunk's rec_chunk_start_id is 0 (first chunk
+        # of a new point cloud), flushed to disk only once rec_is_last_chunk is True. For a point
+        # cloud small enough to fit in a single chunk, first-chunk and last-chunk are the same
+        # call and this collapses back to the old immediate reset-process-write behavior.
         from source.dataloaders.base_data_module import get_results_dir
         from source.dataloaders.ipes_data_loader import hm_to_pts
-
-        prog_bar = self.get_prog_bar()
 
         if len(batch['pc_file_in']) > 1:
             raise NotImplementedError('batch size > 1 not supported')
@@ -384,14 +395,44 @@ class IpesBase(BaseModule):
 
         pc_file_in = batch['pc_file_in'][0]
         pts_query_ms = batch['pts_query_ms'].detach().cpu().numpy()
-        pts_query_ids_xy = batch['pts_query_ids_xy'].detach().cpu().numpy()
         meters_per_pixel = batch['meters_per_pixel'][0].item()
         num_query_pts = pts_query_ms.shape[0]
 
-        # cache for predicted heightmaps
-        hm_ms_all = None
-        hm_pts_ms_all = []
-        hm_pts_norm_all = []
+        is_first_chunk = int(batch['rec_chunk_start_id'][0].item()) == 0
+        is_last_chunk = bool(batch['rec_is_last_chunk'][0].item())
+
+        if is_first_chunk or self._predict_accum is None:
+            self._predict_accum = {
+                'hm_ms': [], 'hm_pts_ms': [], 'hm_pts_norm': [], 'pts_query_ids_xy': [],
+                'interp_rgb': [], 'iteration_offset': 0,
+            }
+        accum = self._predict_accum
+
+        if num_query_pts == 0:
+            # every query point in this chunk was filtered out by _make_local_sub_samples (no
+            # local points found within the patch radius) -- happens for a chunk that falls
+            # entirely in a corner/edge of the reconstruction grid's rectangular bounding box
+            # where the point cloud doesn't actually have coverage. Nothing to forward through
+            # the model or append; just carry the accumulator through to the next chunk (or, if
+            # this is also the last chunk, flush whatever earlier chunks already contributed).
+            if not is_last_chunk:
+                return 0
+        else:
+            self._predict_step_process_chunk(batch, pts_query_ms, num_query_pts, meters_per_pixel, accum, hm_to_pts)
+
+        if not is_last_chunk:
+            return 0
+
+        return self._predict_step_flush(pc_file_in, accum, get_results_dir)
+
+    def _predict_step_process_chunk(self, batch, pts_query_ms, num_query_pts, meters_per_pixel, accum, hm_to_pts):
+        prog_bar = self.get_prog_bar()
+        pts_query_ids_xy = batch['pts_query_ids_xy'].detach().cpu().numpy()
+
+        # cache for this chunk's predicted heightmaps
+        hm_ms_chunk = None
+        hm_pts_ms_chunk = []
+        hm_pts_norm_chunk = []
 
         num_sections = num_query_pts // self.predict_batch_size
         if num_sections == 0:
@@ -413,34 +454,65 @@ class IpesBase(BaseModule):
             pred_chunk_hm_ms = self.post_proc_pred(data_chunk, pred_chunk_hm_ps)
             pred_chunk_hm_ms = pred_chunk_hm_ms.detach().cpu().numpy()
 
-            if hm_ms_all is None:  # init buffer here to get correct channel count
+            if hm_ms_chunk is None:  # init buffer here to get correct channel count
                 out_channels = pred_chunk_hm_ms.shape[1]
-                hm_ms_all_shape = (num_query_pts, out_channels, self.hm_size, self.hm_size)
-                hm_ms_all = np.zeros(hm_ms_all_shape, dtype=np.float32)
-            hm_ms_all[chunk_ids] = pred_chunk_hm_ms
+                hm_ms_chunk_shape = (num_query_pts, out_channels, self.hm_size, self.hm_size)
+                hm_ms_chunk = np.zeros(hm_ms_chunk_shape, dtype=np.float32)
+            hm_ms_chunk[chunk_ids] = pred_chunk_hm_ms
 
             if bool(self.debug):
                 data_chunk['patch_radius_interp_ms'] = batch['patch_radius_interp_ms']
                 data_chunk['pts_query_ids_xy'] = batch['pts_query_ids_xy'][:, chunk_ids]
                 self.visualize_step_results(batch_data=data_chunk, predictions=pred_chunk_hm_ps,
                                             losses=None, metrics=None,
-                                            iteration=iteration, step='predict')
+                                            iteration=accum['iteration_offset'] + iteration, step='predict')
 
             for p in range(pred_chunk_hm_ms.shape[0]):
                 pts_hm_ms, pts_normals = hm_to_pts(
                     pred_chunk_hm_ms[p, 0], pts_query_ms[chunk_ids][p], pixel_size=meters_per_pixel)
-                hm_pts_ms_all.append(pts_hm_ms)
-                hm_pts_norm_all.append(pts_normals)
-            prog_bar.predict_progress_bar.set_postfix_str('iter: {}'.format(iteration), refresh=True)
+                hm_pts_ms_chunk.append(pts_hm_ms)
+                hm_pts_norm_chunk.append(pts_normals)
+            prog_bar.predict_progress_bar.set_postfix_str(
+                'chunk@{}, iter {}'.format(int(batch['rec_chunk_start_id'][0].item()), iteration), refresh=True)
+
+        accum['iteration_offset'] += len(patch_ids_chunked)
+        accum['hm_ms'].append(hm_ms_chunk)
+        accum['hm_pts_ms'].append(np.concatenate(hm_pts_ms_chunk, axis=0))
+        accum['hm_pts_norm'].append(np.concatenate(hm_pts_norm_chunk, axis=0))
+        accum['pts_query_ids_xy'].append(pts_query_ids_xy)
+
+        # accumulate interpolation-based RGB too (unflattened, per-window images) -- used as a
+        # color fallback below only if the model itself doesn't predict color, decided once all
+        # chunks are in, so it must be collected on every chunk regardless
+        interp_rgb_keys = [k for k in batch.keys() if k.startswith('patch_rgb')]
+        if interp_rgb_keys:
+            from source.base.img import slice_img_center
+            pts_rgb_chunk = batch[interp_rgb_keys[0]].detach().cpu().numpy()
+            if pts_rgb_chunk.shape[-1] != self.hm_size or pts_rgb_chunk.shape[-2] != self.hm_size:
+                pts_rgb_chunk = slice_img_center(pts_rgb_chunk, self.hm_interp_size, self.hm_size)
+            accum['interp_rgb'].append(pts_rgb_chunk.transpose(0, 2, 3, 1))
+
+    def _predict_step_flush(self, pc_file_in, accum, get_results_dir):
+        self._predict_accum = None  # release before writing output, done with this point cloud
+
+        if not accum['hm_ms']:
+            # every chunk of this point cloud came back with zero valid query points -- nothing
+            # to reconstruct (e.g. an entirely-uncovered reconstruction area). Skip writing files
+            # rather than crashing on an empty concatenate.
+            print(f'WARNING: no valid reconstruction windows for {pc_file_in}, skipping output.')
+            return 0
+
+        hm_ms_all = np.concatenate(accum['hm_ms'], axis=0)
+        hm_pts_ms_all = np.concatenate(accum['hm_pts_ms'], axis=0)
+        hm_pts_norm_all = np.concatenate(accum['hm_pts_norm'], axis=0)
+        pts_query_ids_xy_all = np.concatenate(accum['pts_query_ids_xy'], axis=0)
+        interp_rgb_all = accum['interp_rgb']
 
         results_dir = get_results_dir(out_dir=self.results_dir, name=self.name, in_file=self.in_file)
         out_file_np = os.path.join(results_dir, 'npy', os.path.basename(pc_file_in) + '.npy')
         out_file_rgb_np = os.path.join(results_dir, 'npy', os.path.basename(pc_file_in) + '_rgb' + '.npy')
         out_file_qids_np = os.path.join(results_dir, 'npy', os.path.basename(pc_file_in) + '_xy' + '.npy')
         out_file_rec = os.path.join(results_dir, 'meshes', os.path.basename(pc_file_in) + '.ply')
-
-        hm_pts_ms_all = np.concatenate(hm_pts_ms_all, axis=0)
-        hm_pts_norm_all = np.concatenate(hm_pts_norm_all, axis=0)
 
         pred_colors = hm_ms_all.shape[1] >= 4
         if pred_colors:  # add color from prediction if available
@@ -449,15 +521,8 @@ class IpesBase(BaseModule):
             pts_rgb = np.clip(pts_rgb, 0.0, 1.0)
             pts_rgb_flat = pts_rgb.transpose(0, 2, 3, 1).reshape(-1, 3)
             hm_ms_all = hm_ms_all[:, 0:1]
-        elif any(k.startswith('patch_rgb') for k in batch.keys()):  # add color from interpolation if available
-            # preference in this order
-            available_rgb_keys = [k for k in batch.keys() if k.startswith('patch_rgb')]
-            chosen_rgb_key = available_rgb_keys[0]  # always take the first one
-            from source.base.img import slice_img_center
-            pts_rgb = batch[chosen_rgb_key].detach().cpu().numpy()
-            if pts_rgb.shape[-1] != self.hm_size or pts_rgb.shape[-2] != self.hm_size:
-                pts_rgb = slice_img_center(pts_rgb, self.hm_interp_size, self.hm_size)
-            pts_rgb = pts_rgb.transpose(0, 2, 3, 1)
+        elif interp_rgb_all:  # add color from interpolation if available
+            pts_rgb = np.concatenate(interp_rgb_all, axis=0)
             pts_rgb_flat = pts_rgb.reshape(-1, 3)
         else:
             pts_rgb = None
@@ -468,7 +533,7 @@ class IpesBase(BaseModule):
         np.save(out_file_np, hm_ms_all)
         if pts_rgb is not None:
             np.save(out_file_rgb_np, pts_rgb)
-        np.save(out_file_qids_np, pts_query_ids_xy)
+        np.save(out_file_qids_np, pts_query_ids_xy_all)
 
         fs.make_dir_for_file(out_file_rec)
         from source.base.point_cloud import write_ply

@@ -5,6 +5,44 @@ import os
 import numpy as np
 
 
+def load_csv_points_cached(
+        csv_path: str, npy_path: typing.Optional[str] = None,
+        mmap_mode: typing.Optional[str] = None) -> np.ndarray:
+    """
+    Loads a comma-delimited points file (e.g. chunkPoints.csv, 'x, y, z, r, g, b' rows) as a
+    float64 (n, k) array, transparently caching it as a binary .npy file next to it so repeat
+    reads skip text parsing entirely.
+
+    np.loadtxt on a large points file is slow (line-by-line text parsing) and memory-heavy
+    (several times the final array size, transiently, while parsing) compared to a binary
+    np.load -- for a 1.6 GB chunkPoints.csv (35M points) this is the difference between a
+    multi-minute parse and a near-instant memory-mapped-speed read. First read still has to
+    parse the CSV once; every read after that (until the CSV changes) hits the .npy cache.
+
+    mmap_mode='r' opens the cached .npy read-only via memory-mapping instead of loading it fully
+    -- this is what actually avoids N-way RAM duplication across separate DataLoader worker
+    processes (spawn-based multiprocessing on Windows doesn't share memory the way fork's
+    copy-on-write does, but independent mmaps of the *same file* still share physical pages via
+    the OS page cache, no explicit shared-memory API needed). Only takes effect on a cache hit;
+    the first-time parse still needs the full array in memory to write it out.
+    """
+    if npy_path is None:
+        npy_path = os.path.splitext(csv_path)[0] + '.npy'
+
+    if not call_necessary(file_in=csv_path, file_out=npy_path):
+        try:
+            return np.load(npy_path, mmap_mode=mmap_mode)
+        except Exception:
+            pass  # fall through and reparse if the cache is corrupt/truncated
+
+    chunk_pts = np.loadtxt(csv_path, dtype=np.float64, delimiter=',')
+    make_dir_for_file(npy_path)
+    tmp_path = f'{npy_path}.tmp.{os.getpid()}.npy'
+    np.save(tmp_path, chunk_pts)
+    os.replace(tmp_path, npy_path)
+    return chunk_pts
+
+
 def make_dir_for_file(file):
     file_dir = os.path.dirname(file)
     if file_dir != '':
@@ -95,3 +133,38 @@ def str_to_consistent_hash(s):
 def md5(s):
     import hashlib
     return int(hashlib.md5(s).hexdigest()[:16], 16)
+
+
+def _unit_test_load_csv_points_cached():
+    import tempfile
+    import time
+
+    rng = np.random.default_rng(0)
+    pts = rng.uniform(0.0, 1000.0, size=(200, 6))
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        csv_path = os.path.join(tmp_dir, 'points.csv')
+        npy_path = os.path.splitext(csv_path)[0] + '.npy'
+        np.savetxt(csv_path, pts, delimiter=',')
+
+        assert not os.path.exists(npy_path)
+        loaded = load_csv_points_cached(csv_path)
+        assert os.path.exists(npy_path), 'cache file was not created on first read'
+        assert np.allclose(loaded, pts, atol=1e-4), 'first (CSV-parsing) read does not match the source data'
+
+        # second read should hit the cache and still match, byte-for-byte this time (no reparse)
+        loaded_cached = load_csv_points_cached(csv_path)
+        assert np.array_equal(loaded, loaded_cached), 'cached read differs from the first read'
+
+        # touching the CSV after the cache was written must invalidate it
+        time.sleep(0.05)
+        new_pts = rng.uniform(0.0, 1000.0, size=(50, 6))
+        np.savetxt(csv_path, new_pts, delimiter=',')
+        loaded_after_update = load_csv_points_cached(csv_path)
+        assert loaded_after_update.shape[0] == 50, 'stale .npy cache was used instead of reparsing the updated CSV'
+        assert np.allclose(loaded_after_update, new_pts, atol=1e-4)
+    print('_unit_test_load_csv_points_cached: OK')
+
+
+if __name__ == '__main__':
+    _unit_test_load_csv_points_cached()

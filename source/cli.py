@@ -268,6 +268,41 @@ class Cli(LightningCLI):
             # 'tune': {'model', 'train_dataloaders', 'val_dataloaders', 'datamodule'},
         }
 
+    def _precompute_local_points_cache(self, in_files: typing.List[str]):
+        # Builds the per-shape KDTree-query cache (source/dataloaders/local_points_cache.py) once,
+        # before any DataLoader worker exists -- this is what actually prevents num_workers>0 from
+        # having every worker redundantly load a shape's full point cloud and build its own
+        # KDTree (see plan/notes: this is what exhausted RAM on a 35M-point shape).
+        #
+        # Runs in a throwaway subprocess, not inline here, and that's deliberate: building a
+        # KDTree over tens of millions of points is a large but *transient* peak (tens of GB).
+        # Freeing the Python objects afterward doesn't reliably shrink this process's OS-level
+        # working set back down (allocator behavior, not something Windows reclaims eagerly from
+        # a still-running process) -- so if this ran inline, that high-water mark would still be
+        # resident when the DataLoader spawns its own worker processes right after, stacking on
+        # top of them instead of being released first. A subprocess's entire footprint is
+        # actually returned to the OS the moment it exits.
+        datamodule = self.datamodule
+        required_attrs = ['hm_interp_size', 'context_radius_factor', 'meters_per_pixel']
+        if not all(hasattr(datamodule, attr) for attr in required_attrs):
+            return
+        import multiprocessing as mp
+        from source.dataloaders.local_points_cache import precompute_local_points_cache
+
+        ctx = mp.get_context('spawn')
+        proc = ctx.Process(
+            target=precompute_local_points_cache,
+            kwargs=dict(
+                in_files=in_files,
+                hm_interp_size=datamodule.hm_interp_size,
+                context_radius_factor=datamodule.context_radius_factor,
+                meters_per_pixel=datamodule.meters_per_pixel,
+            ))
+        proc.start()
+        proc.join()
+        if proc.exitcode != 0:
+            raise RuntimeError(f'local-points cache precompute subprocess failed (exit code {proc.exitcode})')
+
     def before_fit(self):
         datamodule = self.datamodule
         required_attrs = [
@@ -278,6 +313,8 @@ class Cli(LightningCLI):
         ]
         if not all(hasattr(datamodule, attr) for attr in required_attrs):
             raise ValueError(f'Missing required datamodule attributes for img_cache precompute, expected {required_attrs} but got {datamodule.__dict__.keys()}')
+
+        self._precompute_local_points_cache([datamodule.train_set, datamodule.val_set])
 
         from source.dataloaders.img_cache_precompute import precompute_img_cache_for_fit
 
@@ -295,3 +332,38 @@ class Cli(LightningCLI):
             rgb_to_img_methods=datamodule.rgb_to_img_methods,
             refresh_cache=refresh_cache,
         )
+
+    def before_test(self):
+        datamodule = self.datamodule
+        if hasattr(datamodule, 'test_set'):
+            self._precompute_local_points_cache([datamodule.test_set])
+
+        required_attrs = [
+            'pts_to_img_methods', 'rgb_to_img_methods',
+            'hm_interp_size', 'hm_size', 'context_radius_factor',
+            'meters_per_pixel', 'dataset_step',
+        ]
+        if hasattr(datamodule, 'test_set') and all(hasattr(datamodule, attr) for attr in required_attrs):
+            # img_cache precompute for the test set too -- previously only before_fit did this,
+            # so test runs relied on the DataLoader workers rendering any uncached windows
+            # on-the-fly. That happened to be tolerable only because test id-ranges are small
+            # (a few hundred windows); on a larger/denser test set it's the same failure mode
+            # that stalled a fit run for 64+ hours (see img_cache_precompute.py's done-marker
+            # comment). test_set passed as both train_set/val_set: precompute_img_cache_for_fit
+            # just unions and dedupes the two shape lists, so a single list works fine here.
+            from source.dataloaders.img_cache_precompute import precompute_img_cache_for_fit
+
+            refresh_cache = bool(getattr(self.cur_config(), 'refresh_cache', False))
+            precompute_img_cache_for_fit(
+                in_file=datamodule.in_file,
+                train_set=datamodule.test_set,
+                val_set=datamodule.test_set,
+                hm_interp_size=datamodule.hm_interp_size,
+                hm_size=datamodule.hm_size,
+                context_radius_factor=datamodule.context_radius_factor,
+                meters_per_pixel=datamodule.meters_per_pixel,
+                dataset_step=datamodule.dataset_step,
+                pts_to_img_methods=datamodule.pts_to_img_methods,
+                rgb_to_img_methods=datamodule.rgb_to_img_methods,
+                refresh_cache=refresh_cache,
+            )

@@ -71,6 +71,32 @@ def query_ball_kdtree(kdtree: typing.Union[ScipyKDTree, PyKDTree],
     return nn_ids
 
 
+def query_ball_kdtree_batched(
+        kdtree: typing.Union[ScipyKDTree, PyKDTree],
+        pts_query: np.ndarray, r: float, batch_size: int = 500, **kwargs) -> typing.List[np.ndarray]:
+    """
+    Same result as query_ball_kdtree, but issues the query in batches instead of one all-at-once
+    call. A single query_ball_point() call covering many query points against a dense tree can
+    itself be a large memory bottleneck inside scipy -- that memory is spent before any Python-
+    side postprocessing runs, so batching *how the result is consumed* doesn't help; only
+    batching the query call itself does. This hit a real crash (~46-49GB) on a 35M-point/10k-
+    query shape (see source/dataloaders/local_points_cache.py's build_local_point_index_cache
+    docstring for the original diagnosis) and, unbatched, the exact same class of crash recurred
+    in predict/reconstruction mode (source/dataloaders/ipes_data_loader.py), which builds its
+    query points on the fly and so can't go through that module's precomputed-cache path at all.
+    Bounds peak memory to roughly one batch's worth of query results, independent of the total
+    number of local-point hits across all query points.
+    """
+    n = pts_query.shape[0]
+    result: typing.List[np.ndarray] = []
+    for start in range(0, n, batch_size):
+        end = min(start + batch_size, n)
+        id_lists = query_ball_kdtree(kdtree=kdtree, pts_query=pts_query[start:end], r=r, **kwargs)
+        result.extend(np.asarray(ids) for ids in id_lists)
+        del id_lists
+    return result
+
+
 @ignore  # can't compile kdtree
 def kdtree_query_oneshot(pts: np.ndarray, pts_query: np.ndarray, k: int, sqr_dists=False, **kwargs):
     # sqr_dists: True: some speed-up but distorted distances

@@ -117,9 +117,60 @@ def pts_to_img(
         raise ValueError(f'Unknown method: {method}')
 
 
+def img_cache_file_path(cache_key: str, resolution: int, method: str, context_radius_factor: float,
+                        cache_dir: str) -> str:
+    """
+    Computes exactly the same path pts_to_img_cached(..., cache_key=cache_key) would look up or
+    write, without needing any actual point data. This is what makes it possible to check "is
+    this window's render already cached" *before* resolving its local points at all (reading the
+    point cloud, querying/loading the KDTree index, fancy-indexing, patch-space conversion) --
+    see IpesImgDataset.add_gt_data's cache-only fast path, which skips all of that work entirely
+    when every file this returns for a window already exists. That upstream resolution work was
+    the actual remaining cost even after the cache_key fix below made the *lookup* itself O(1)
+    instead of O(points) -- this closes that gap.
+    """
+    import os
+    from source.base import fs
+
+    input_hash = fs.str_to_consistent_hash('{}_{}_{}_{}'.format(cache_key, resolution, method, context_radius_factor))
+    return os.path.join(cache_dir, '{}.npy'.format(input_hash))
+
+
 def pts_to_img_cached(
         pts_ps_xy: np.ndarray, pts_data: np.ndarray, resolution: int, method: str, cache_dir: str,
-        context_radius_factor=1.5):
+        context_radius_factor=1.5, cache_key: typing.Optional[str] = None):
+    """
+    cache_key: a cheap, caller-supplied identifier (e.g. 'shape_name|chunk_pts_mtime|query_id')
+    that's already unique per distinct patch, used instead of hashing the actual point content.
+
+    Hashing pts_ps_xy/pts_data (the old default, still used when cache_key is None) costs
+    O(points-in-patch) every call -- negligible for a normal shape's tens of points per patch,
+    but for a 100x-densified shape like ca_13_cp100 (patches with ~100k+ points, per
+    source/dataloaders/local_points_cache.py's own sizing) this hashing became the actual
+    bottleneck: GPU utilization stayed low and workers stayed CPU-bound even with a fully warm
+    cache (verified: zero new cache files being written, yet CPU pegged), because every window,
+    every render method, every epoch re-hashed the full patch content just to find the cache
+    file. A window's rendered patch is already fully determined by (shape, absolute query index,
+    method, resolution, context_radius_factor) via the deterministic local-points cache, so an
+    identifier this cheap to build is exactly as unique -- just O(1) instead of O(points).
+
+    Known tradeoff, accepted deliberately: this assumes the *order* in which local points are
+    resolved for a given (shape, query index) is stable over time, not just deterministic within
+    one run. It is stable today -- source/dataloaders/local_points_cache.py's CSR index is built
+    once via query_ball_point(..., return_sorted=True) (verified: sorts by index, and is
+    byte-identical across repeated calls even with workers=-1) and then just read back as a fixed
+    array slice on every subsequent access, forever, so the same ordered point list is always fed
+    to the renderer for a given key. That matters because the renderer is *not* order-invariant
+    in general: two points with exactly equal (or near-equal, post-quantization) coordinates but
+    different data values -- plausible in real, dense LiDAR data -- can make e.g. griddata's
+    'nearest'/'linear' output depend on which one appears first in the input array (verified
+    empirically: shuffling duplicate-coordinate points changed several percent of a test grid's
+    pixels). The old content-hash key incidentally self-healed against this (any reordering of
+    the actual bytes changed the hash); the cache_key path does not -- if the resolution
+    pipeline's ordering convention is ever changed (a scipy upgrade, an edit to
+    local_points_cache.py or the KDTree library used), that change must also invalidate/rebuild
+    this cache, since nothing here would otherwise detect it.
+    """
     import os
     from source.base import fs
 
@@ -132,9 +183,12 @@ def pts_to_img_cached(
 
     # context_radius_factor is part of the cache key because it changes the patch scaling factor
     # (see get_patch_scaling_factor) and therefore the resulting image, even for identical points
-    input_hash = (fs.md5(pts_ps_xy.tobytes()) + fs.md5(pts_data.tobytes()) + resolution
-                 + fs.str_to_consistent_hash(method) + fs.str_to_consistent_hash(str(context_radius_factor)))
-    cache_file = os.path.join(cache_dir, '{}.npy'.format(input_hash))
+    if cache_key is not None:
+        cache_file = img_cache_file_path(cache_key, resolution, method, context_radius_factor, cache_dir)
+    else:
+        input_hash = (fs.md5(pts_ps_xy.tobytes()) + fs.md5(pts_data.tobytes()) + resolution
+                     + fs.str_to_consistent_hash(method) + fs.str_to_consistent_hash(str(context_radius_factor)))
+        cache_file = os.path.join(cache_dir, '{}.npy'.format(input_hash))
 
     # killing the process may leave empty cache files
     # if os.path.exists(cache_file) and os.path.getsize(cache_file) > 0 and method != 'rasterize':  # rasterize ist fast

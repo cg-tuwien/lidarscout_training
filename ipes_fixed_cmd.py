@@ -66,22 +66,49 @@ def make_configs(
 
 
 RUN_SPECS = (
-    {   # Resume the best model for one more epoch to exercise last.pt export
-        'name': 'ipes_cnn_v2_voidloss_arch2_resume_1epoch',
-        'configs': make_configs(
-            loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned'),
-        'resume_ckpt_path': 'models/ipes_cnn_v2_voidloss_arch2/alpha/checkpoints/last.ckpt',
-        'fit_overrides': ('--trainer.max_epochs', '76', '--data.init_args.workers', '4'),
-    },
+    # {   # Resume the best model for one more epoch to exercise last.pt export
+    #     'name': 'ipes_cnn_v2_voidloss_arch2_resume_1epoch',
+    #     'configs': make_configs(
+    #         loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned'),
+    #     'resume_ckpt_path': 'models/ipes_cnn_v2_voidloss_arch2/alpha/checkpoints/last.ckpt',
+    #     'fit_overrides': ('--trainer.max_epochs', '76', '--data.init_args.workers', '4'),
+    # },
     # {   # Asymmetric Dual-Stream architecture, best so far
     #     'name': 'ipes_cnn_v2_voidloss', # ipes_cnn_hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned_mask_noaug with new CNN architecture
     #     'configs': make_configs(
     #         loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned'),
     # },
-    {   # Asymmetric Dual-Stream architecture, best so far
-        'name': 'ipes_cnn_v2_voidloss_arch2', # ipes_cnn_hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned_mask_noaug with new CNN architecture
+    # {   # Asymmetric Dual-Stream architecture, best so far -- already trained, commented out so
+    #     # re-running this file doesn't overwrite its checkpoint (fit has no --ckpt_path here,
+    #     # so it would start a fresh run into the same model dir)
+    #     'name': 'ipes_cnn_v2_voidloss_arch2_fixed_mask', # ipes_cnn_hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned_mask_noaug with new CNN architecture
+    #     'configs': make_configs(
+    #         loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned'),
+    # },
+    # {   # Validates the patch-scaling-factor fix (get_patch_scaling_factor() in
+    #     # source/base/point_cloud.py, replacing the old hardcoded 103/96 magic_scaling_factor)
+    #     # end-to-end through the real training pipeline. Already trained; local-points-cache
+    #     # fixed follow-up is 'ipes_cnn_v2_voidloss_arch2_fixed_mask_localptscache' -- left
+    #     # disabled so re-running this file doesn't refit into its checkpoint.
+    #     'name': 'ipes_cnn_v2_voidloss_arch2_fixed_mask_patchscale_fix',
+    #     'configs': make_configs(
+    #         loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned'),
+    # },
+    {   # LOD-less-LOD comparison A: trained WITHOUT the original ca_13 (only its 100x-densified
+        # chunk-point variant) + swisssurface3d. Compares against comparison B below (which adds
+        # ca_13 back in) to see whether the cp100 variant alone is enough signal, or whether
+        # having both densities of the same tile helps.
+        'name': 'ipes_cnn_v2_voidloss_arch2_fixed_mask_ca13cp100_swiss',
         'configs': make_configs(
-            loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned'),
+            loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned', dataset='train_ca13cp100_swiss'),
+        'test_datasets': ('ca_13', 'ca_13_cp100', 'swisssurface3d'),
+    },
+    {   # LOD-less-LOD comparison B: trained on ca_13 + ca_13_cp100 (both densities of the
+        # same tile) + swisssurface3d. See comment on comparison A above.
+        'name': 'ipes_cnn_v2_voidloss_arch2_fixed_mask_ca13_ca13cp100_swiss',
+        'configs': make_configs(
+            loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned', dataset='train_ca13_ca13cp100_swiss'),
+        'test_datasets': ('ca_13', 'ca_13_cp100', 'swisssurface3d'),
     },
     # {   # Asymmetric Dual-Stream architecture, slightly better PSNR but worse LPIPS
     #     'name': 'ipes_cnn_v2_norgbgrad', # ipes_cnn_hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned_mask_noaug with new CNN architecture
@@ -98,11 +125,13 @@ RUN_SPECS = (
     #     'configs': make_configs(
     #         loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned', dataset='train_allstar'),
     # },
-    {   # Asymmetric Dual-Stream architecture, extra data ablation
-        'name': 'ipes_cnn_v2_extra_data_voidloss_arch2', # ipes_cnn_hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned_mask_noaug with new CNN architecture
-        'configs': make_configs(
-            loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned', dataset='train_allstar'),
-    },
+    # {   # Asymmetric Dual-Stream architecture, extra data ablation -- already trained (see
+    #     # comment on the fixed_mask baseline above); also allstar, not the small dataset we're
+    #     # validating the patch-scaling fix against right now, so left disabled
+    #     'name': 'ipes_cnn_v2_extra_data_voidloss_arch2_fixed_mask', # ipes_cnn_hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned_mask_noaug with new CNN architecture
+    #     'configs': make_configs(
+    #         loss='hm_mse_hm_gradient_rgb_mse_lpips_gradient_learned', dataset='train_allstar'),
+    # },
     # {   # Asymmetric Dual-Stream architecture, colorization ablation
     #     'name': 'ipes_cnn_v2_colorizer',
     #     'configs': make_configs(
@@ -232,10 +261,12 @@ def iter_run_argvs():
     for spec in RUN_SPECS:
         yield build_fit_argv(spec)
 
-        for dataset in COMMON_TEST_DATASETS:
+        test_datasets = spec.get('test_datasets', COMMON_TEST_DATASETS)
+
+        for dataset in test_datasets:
             yield build_stage_argv('test', spec, dataset, 'datasets/laz_minimal/test_{dataset}.txt')
 
-        for dataset in COMMON_TEST_DATASETS:
+        for dataset in test_datasets:
            yield build_stage_argv('predict', spec, dataset, 'datasets/laz_minimal/bins/{dataset}/chunkPoints.csv')
 
 
